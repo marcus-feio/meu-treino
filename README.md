@@ -10,18 +10,22 @@ App instalável no iPhone (PWA), sem passar pela App Store. Funciona offline dep
 - Tela **Avaliação**: importa o PDF da avaliação de bioimpedância (padrão BlueFit/FitMass), extrai peso, %gordura, massa muscular, IMC, metabolismo basal, análise segmentar e score, e mostra a evolução entre avaliações
 - Tudo fica salvo **no seu próprio iPhone** (localStorage do Safari) — nada é enviado para nenhum servidor
 
-## Passo 1 — Gerar o treino com o Gemini no formato certo
-Para a leitura do PDF funcionar bem, o treino precisa seguir um formato simples. Dentro do app, no botão **"+"** da aba Treinos, toque em **"Ver modelo para o Gemini"** e copie o texto — cole isso no início da sua conversa com o Gemini antes de pedir o treino. Depois, exporte a resposta dele como PDF (no app do Gemini ou copiando o texto para um editor e usando "Exportar como PDF").
+## Passo 1 — Gerar o treino com o Gemini
+O app aceita **PDF ou TXT**. Para reduzir o risco de erro na leitura, na aba Treinos → botão **"+"** → **"Baixar modelo para o Gemini (.txt)"** baixa um arquivo de preenchimento: você entrega esse arquivo pronto pro Gemini e pede pra ele só preencher os campos entre colchetes, sem mudar a estrutura. Isso deixa o resultado bem mais previsível do que pedir texto livre.
 
-Formato esperado:
-```
-# TREINO A — Peito e Tríceps
-1. Supino reto | 4x10-12 | 40kg | descanso 90s
-2. Crucifixo com halteres | 3x12 | 14kg | descanso 60s
+O app também entende variações mais soltas (marcadores "•", "Nome: 4x10" sem carga etc.) como plano B, mas o modelo rígido é o caminho mais confiável.
 
-# TREINO B — Costas e Bíceps
-1. Puxada frente | 4x10-12 | 45kg | descanso 90s
+Exemplo de formato aceito:
 ```
+--- TREINO A: Peito e Tríceps ---
+• Supino reto: 4x 10-12
+• Crucifixo com halteres: 3x 12
+CARDIO: Esteira - 30 min ritmo moderado
+
+--- TREINO B: Costas e Bíceps ---
+• Puxada frente: 4x 10-12
+```
+Se o Gemini não indicar carga, o app deixa o campo em branco para você preencher na primeira vez que treinar — depois disso ele lembra o último valor usado.
 
 ## Passo 2 — Publicar o app (necessário para instalar no iPhone)
 O iPhone só permite "Adicionar à Tela de Início" como app de verdade (com ícone, tela cheia e modo offline) para páginas servidas por **HTTPS**. A forma mais simples e gratuita é o GitHub Pages:

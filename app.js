@@ -7,23 +7,24 @@ const STORAGE_KEY = "treino-app-state-v1";
 const WEEKDAYS = ["D", "S", "T", "Q", "Q", "S", "S"];
 const MONTHS = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
 
-const GEMINI_TEMPLATE = `Monte meu treino de academia seguindo EXATAMENTE este formato de texto simples (sem markdown extra, sem tabelas), para eu transformar em PDF depois:
+const GEMINI_TEMPLATE = `INSTRUÇÕES PARA VOCÊ (IA): preencha apenas o que está entre colchetes [ ] abaixo, mantendo exatamente esta estrutura — os títulos "# TREINO", a numeração dos exercícios e o separador " | " entre os campos. Não escreva nada fora deste modelo (sem introdução, sem texto solto, sem markdown como **negrito** ou tabelas). Repita o bloco "# TREINO" quantas vezes forem necessários para os dias de treino da semana.
 
-# TREINO A — Peito e Tríceps
-1. Supino reto | 4x10-12 | 40kg | descanso 90s
-2. Crucifixo com halteres | 3x12 | 14kg | descanso 60s
-3. Tríceps corda | 3x12-15 | 20kg | descanso 60s
+# TREINO [LETRA, ex: A] — [grupo muscular do dia]
+1. [nome do exercício] | [séries]x[repetições] | [carga]kg | descanso [segundos]s
+2. [nome do exercício] | [séries]x[repetições] | [carga]kg | descanso [segundos]s
+3. [nome do exercício] | [séries]x[repetições] | [carga]kg | descanso [segundos]s
 
-# TREINO B — Costas e Bíceps
-1. Puxada frente | 4x10-12 | 45kg | descanso 90s
-...
+# TREINO [LETRA, ex: B] — [grupo muscular do dia]
+1. [nome do exercício] | [séries]x[repetições] | [carga]kg | descanso [segundos]s
+2. [nome do exercício] | [séries]x[repetições] | [carga]kg | descanso [segundos]s
 
 Regras:
-- Cada treino começa com uma linha "# TREINO <LETRA> — <foco>"
-- Cada exercício é uma linha numerada, com as partes separadas por " | " nesta ordem: nome | séries x repetições | carga | descanso
-- Não adicione texto fora desse formato.
+- Se ainda não houver carga definida para um exercício, escreva "a definir" no lugar de "[carga]kg"
+- Não use travessão, dois-pontos ou qualquer outro separador dentro da linha do exercício além de " | "
+- A numeração dos exercícios reinicia em 1 a cada novo treino
+- Para dias de cardio, use: CARDIO: [descrição, ex: Esteira 30 min ritmo moderado]
 
-Meu perfil / objetivo: [descreva aqui].`;
+Meu perfil / objetivo: [idade, objetivo, frequência semanal de treino, restrições ou lesões].`;
 
 /* ============ STATE ============ */
 function loadState() {
@@ -87,9 +88,13 @@ function toast(msg) {
 function lastLogFor(exerciseName) {
   for (let i = state.sessions.length - 1; i >= 0; i--) {
     const entry = state.sessions[i].log.find((l) => l.nome === exerciseName);
-    if (entry) return entry;
+    if (entry) return { ...entry, date: state.sessions[i].date };
   }
   return null;
+}
+function formatShortDate(iso) {
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}`;
 }
 
 function suggestTodayLetter() {
@@ -123,10 +128,14 @@ function renderHoje(view) {
   const rows = workout.exercises
     .map((ex) => {
       const last = lastLogFor(ex.nome);
+      const metaSeries = ex.series ? `${ex.series}x${ex.reps}` : ex.reps;
+      const metaLine = last
+        ? `Última vez (${formatShortDate(last.date)}): ${last.series ? last.series + "x" + last.reps : last.reps}${last.carga ? " · " + last.carga : ""}`
+        : `Sugerido: ${metaSeries}${ex.carga ? " · " + ex.carga : ""}${ex.descanso ? " · descanso " + ex.descanso : ""}`;
       return `
       <div class="exercise-row" data-ex-id="${ex.id}">
-        <div class="exercise-name">${ex.nome}</div>
-        <div class="exercise-meta">Sugerido: ${ex.series}x${ex.reps} · ${ex.carga || "—"}${ex.descanso ? " · descanso " + ex.descanso : ""}</div>
+        <div class="exercise-name">${ex.nome}${ex.isCardio ? " 🏃" : ""}</div>
+        <div class="exercise-meta">${metaLine}</div>
         <div class="log-grid">
           <div><label>Séries</label><input type="number" inputmode="numeric" class="in-series" value="${last ? last.series : ex.series}"></div>
           <div><label>Reps</label><input type="text" inputmode="numeric" class="in-reps" value="${last ? last.reps : ex.reps}"></div>
@@ -190,7 +199,7 @@ function renderTreinos(view) {
       <div class="workout-foco">${w.foco || "Sem descrição"}</div>
       ${w.exercises
         .map(
-          (ex) => `<div class="ex-list-item"><span>${ex.nome}</span><span class="n">${ex.series}x${ex.reps} · ${ex.carga || "—"}</span></div>`
+          (ex) => `<div class="ex-list-item"><span>${ex.nome}${ex.isCardio ? " 🏃" : ""}</span><span class="n">${ex.series ? ex.series + "x" + ex.reps : ex.reps}${ex.carga ? " · " + ex.carga : ""}</span></div>`
         )
         .join("")}
     </div>`
@@ -228,10 +237,12 @@ function openImportModal() {
   backdrop.innerHTML = `
     <div class="modal">
       <h3>Adicionar treino</h3>
-      <p class="section-sub">Importe o PDF gerado pelo Gemini, ou veja o modelo de texto para pedir a ele.</p>
-      <button class="btn" id="modal-import-pdf">Importar PDF</button>
+      <p class="section-sub">Importe o PDF ou TXT gerado pelo Gemini, ou baixe o modelo de preenchimento para ele usar.</p>
+      <button class="btn" id="modal-import-pdf">Importar arquivo (PDF ou TXT)</button>
       <div style="height:10px"></div>
-      <button class="btn secondary" id="modal-show-template">Ver modelo para o Gemini</button>
+      <button class="btn secondary" id="modal-download-template">Baixar modelo para o Gemini (.txt)</button>
+      <div style="height:8px"></div>
+      <button class="btn secondary" id="modal-show-template">Ver modelo na tela</button>
       <div id="template-holder"></div>
       <div style="height:10px"></div>
       <button class="btn secondary" id="modal-cancel">Cancelar</button>
@@ -245,6 +256,10 @@ function openImportModal() {
   backdrop.querySelector("#modal-import-pdf").addEventListener("click", () => {
     backdrop.remove();
     document.getElementById("pdf-input").click();
+  });
+  backdrop.querySelector("#modal-download-template").addEventListener("click", () => {
+    downloadTextFile("modelo-treino-gemini.txt", GEMINI_TEMPLATE);
+    toast("Modelo baixado");
   });
   backdrop.querySelector("#modal-show-template").addEventListener("click", () => {
     const holder = backdrop.querySelector("#template-holder");
@@ -261,21 +276,34 @@ function openImportModal() {
   });
 }
 
+function downloadTextFile(filename, content) {
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 document.getElementById("pdf-input").addEventListener("change", async (e) => {
   const file = e.target.files[0];
   e.target.value = "";
   if (!file) return;
   try {
-    const text = await extractPdfText(file);
+    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    const text = isPdf ? await extractPdfText(file) : await file.text();
     const parsed = parseWorkoutText(text);
     if (parsed.length === 0) {
-      toast("Não consegui identificar exercícios nesse PDF");
+      toast("Não consegui identificar exercícios nesse arquivo");
       return;
     }
     openReviewModal(parsed);
   } catch (err) {
     console.error(err);
-    toast("Erro ao ler o PDF");
+    toast("Erro ao ler o arquivo");
   }
 });
 
@@ -304,47 +332,93 @@ async function extractPdfText(file) {
 }
 
 function parseWorkoutText(text) {
-  const lines = text
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
-
-  const headerRe = /^#?\s*TREINO\s+([A-Za-zÀ-ú0-9]+)\s*[-–—:]?\s*(.*)$/i;
-  const exerciseRe = /^\d+[\.\)]\s*(.+)$/;
+  const rawLines = text.split("\n").map((l) => l.trim()).filter(Boolean);
 
   const workouts = [];
   let current = null;
+  let inNotes = false;
 
-  lines.forEach((line) => {
-    const h = line.match(headerRe);
-    if (h) {
-      current = { id: uid(), letter: h[1].toUpperCase(), foco: h[2] || "", exercises: [] };
-      workouts.push(current);
+  rawLines.forEach((rawLine) => {
+    if (/^OBSERVA[ÇC][ÕO]ES/i.test(rawLine)) {
+      inNotes = true;
       return;
     }
-    const ex = line.match(exerciseRe);
-    if (ex) {
-      if (!current) {
-        current = { id: uid(), letter: String.fromCharCode(65 + workouts.length), foco: "", exercises: [] };
-        workouts.push(current);
-      }
-      const parts = ex[1].split("|").map((p) => p.trim());
-      const nome = parts[0] || "Exercício";
-      let series = "";
-      let reps = "";
+    // ignora linhas decorativas feitas só de =, -, * ou #
+    if (/^[=\-*#\s]+$/.test(rawLine)) return;
+
+    // normaliza: remove decoração tipo "#", "---", "===" ao redor do título
+    const cleaned = rawLine.replace(/^[#\-=\s]+/, "").replace(/[\-=\s]+$/, "");
+
+    const headerMatch = cleaned.match(/^TREINO\s+([A-Za-zÀ-ú0-9]+)\s*[:\-–—]?\s*(.*)$/i);
+    if (headerMatch) {
+      current = { id: uid(), letter: headerMatch[1].toUpperCase(), foco: headerMatch[2] || "", exercises: [] };
+      workouts.push(current);
+      inNotes = false;
+      return;
+    }
+
+    if (inNotes) return; // ignora observações soltas após "OBSERVAÇÕES..."
+
+    const numMatch = rawLine.match(/^\d+[\.\)]\s*(.+)$/);
+    const bulletMatch = rawLine.match(/^[•\-*]\s*(.+)$/);
+    const cardioMatch = rawLine.match(/^CARDIO\s*:?\s*(.*)$/i);
+
+    let content = null;
+    let isCardio = false;
+    if (cardioMatch) {
+      content = cardioMatch[1];
+      isCardio = true;
+    } else if (numMatch) {
+      content = numMatch[1];
+    } else if (bulletMatch) {
+      content = bulletMatch[1];
+    }
+    if (content === null) return;
+
+    if (!current) {
+      current = { id: uid(), letter: String.fromCharCode(65 + workouts.length), foco: "", exercises: [] };
+      workouts.push(current);
+    }
+
+    let nome, series = "", reps = "", carga = "", descanso = "";
+
+    if (content.includes("|")) {
+      // formato estrito: nome | Nx reps | carga | descanso
+      const parts = content.split("|").map((p) => p.trim());
+      nome = parts[0] || "Exercício";
       if (parts[1]) {
         const sr = parts[1].match(/(\d+)\s*[xX]\s*(.+)/);
-        if (sr) {
-          series = sr[1];
-          reps = sr[2].trim();
-        } else {
-          reps = parts[1];
-        }
+        if (sr) { series = sr[1]; reps = sr[2].trim(); } else { reps = parts[1]; }
       }
-      const carga = parts[2] || "";
-      const descanso = (parts[3] || "").replace(/descanso/i, "").trim();
-      current.exercises.push({ id: uid(), nome, series, reps, carga, descanso });
+      carga = parts[2] || "";
+      descanso = (parts[3] || "").replace(/descanso/i, "").trim();
+    } else if (isCardio) {
+      nome = "Cardio";
+      reps = content.trim();
+    } else if (content.includes(":")) {
+      // formato solto: "Nome do exercício: 3x 10-12" ou "Duração: 60 a 90 minutos"
+      const idx = content.indexOf(":");
+      nome = content.slice(0, idx).trim();
+      const rest = content.slice(idx + 1).trim();
+      const sr = rest.match(/(\d+)\s*[xX]\s*([\d\-–a\s]+)/i);
+      if (sr) {
+        series = sr[1];
+        reps = sr[2].trim();
+      } else {
+        reps = rest;
+      }
+    } else {
+      const sr = content.match(/(\d+)\s*[xX]\s*([\d\-–]+)/);
+      if (sr) {
+        nome = content.slice(0, sr.index).trim() || "Exercício";
+        series = sr[1];
+        reps = sr[2].trim();
+      } else {
+        nome = content.trim();
+      }
     }
+
+    current.exercises.push({ id: uid(), nome, series, reps, carga, descanso, isCardio });
   });
 
   return workouts.filter((w) => w.exercises.length > 0);
@@ -359,7 +433,7 @@ function openReviewModal(parsedWorkouts) {
     <div class="card">
       <div class="workout-header"><div class="workout-letter">Treino ${w.letter}</div></div>
       <div class="workout-foco">${w.foco || ""}</div>
-      ${w.exercises.map((ex) => `<div class="ex-list-item"><span>${ex.nome}</span><span class="n">${ex.series}x${ex.reps} · ${ex.carga || "—"}</span></div>`).join("")}
+      ${w.exercises.map((ex) => `<div class="ex-list-item"><span>${ex.nome}${ex.isCardio ? " 🏃" : ""}</span><span class="n">${ex.series ? ex.series + "x" + ex.reps : ex.reps}${ex.carga ? " · " + ex.carga : ""}</span></div>`).join("")}
     </div>`
     )
     .join("");
