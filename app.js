@@ -33,10 +33,12 @@ function loadState() {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (!parsed.assessments) parsed.assessments = [];
+      if (!parsed.runs) parsed.runs = [];
+      if (!parsed.runPlans) parsed.runPlans = [];
       return parsed;
     }
   } catch (e) {}
-  return { workouts: [], sessions: [], assessments: [] };
+  return { workouts: [], sessions: [], assessments: [], runs: [], runPlans: [] };
 }
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -63,6 +65,7 @@ function render() {
   view.innerHTML = "";
   if (currentTab === "hoje") renderHoje(view);
   else if (currentTab === "treinos") renderTreinos(view);
+  else if (currentTab === "corrida") renderCorrida(view);
   else if (currentTab === "progresso") renderProgresso(view);
   else if (currentTab === "avaliacao") renderAvaliacao(view);
   document.getElementById("topbar-date").textContent = formatDateLong(new Date());
@@ -146,7 +149,7 @@ function renderHoje(view) {
     .join("");
 
   view.innerHTML = `
-    <div class="section-title">Hoje</div>
+    <div class="section-title">Treino de hoje</div>
     <div class="section-sub">${workout.foco || ""}</div>
     <div class="today-pick">${pills}</div>
     <div class="card">${rows}</div>
@@ -207,7 +210,7 @@ function renderTreinos(view) {
     .join("");
 
   view.innerHTML = `
-    <div class="section-title">Treinos</div>
+    <div class="section-title">Meu Treino</div>
     <div class="section-sub">Modelos importados do seu PDF.</div>
     ${cards || `<div class="empty"><div class="empty-mark">▤</div><p>Nenhum treino cadastrado.</p></div>`}
     <div style="height:70px"></div>
@@ -720,14 +723,15 @@ function deltaHtml(curr, prev, higherIsBetter) {
   if (Math.abs(diff) < 0.05) return `<div class="delta">= estável</div>`;
   const improved = higherIsBetter ? diff > 0 : diff < 0;
   const arrow = diff > 0 ? "▲" : "▼";
-  return `<div class="delta ${improved ? "up" : "down"}">${arrow} ${Math.abs(diff).toFixed(1)} vs anterior</div>`;
+  const arrowClass = improved ? "arrow-up" : "arrow-down";
+  return `<div class="delta"><span class="${arrowClass}">${arrow}</span> ${Math.abs(diff).toFixed(1)} vs anterior</div>`;
 }
 
 function renderAvaliacao(view) {
   const list = state.assessments;
   if (list.length === 0) {
     view.innerHTML = `
-      <div class="section-title">Avaliação física</div>
+      <div class="section-title">Avaliações</div>
       <div class="empty">
         <div class="empty-mark">◆</div>
         <p>Nenhuma avaliação importada ainda.<br>Toque no "+" para importar o PDF da sua bioimpedância.</p>
@@ -779,7 +783,7 @@ function renderAvaliacao(view) {
   }
 
   view.innerHTML = `
-    <div class="section-title">Avaliação física</div>
+    <div class="section-title">Avaliações</div>
     <div class="card">
       <div class="score-card">
         <div class="score-ring"><span class="num">${latest.score ?? "—"}</span><span class="den">/100</span></div>
@@ -858,6 +862,287 @@ function addAssessmentFab(view) {
   fab.textContent = "+";
   view.appendChild(fab);
   fab.addEventListener("click", () => document.getElementById("assessment-pdf-input").click());
+}
+
+/* ============ MINHA CORRIDA ============ */
+function parseTimeToSeconds(str) {
+  if (!str) return null;
+  const clean = String(str).trim().replace(",", ".");
+  const parts = clean.split(":").map((p) => parseFloat(p));
+  if (parts.some((p) => isNaN(p))) return null;
+  let sec = 0;
+  if (parts.length === 3) sec = parts[0] * 3600 + parts[1] * 60 + parts[2];
+  else if (parts.length === 2) sec = parts[0] * 60 + parts[1];
+  else if (parts.length === 1) sec = parts[0] * 60;
+  return sec;
+}
+function formatSecondsToClock(sec) {
+  if (sec == null || isNaN(sec)) return "—";
+  sec = Math.round(sec);
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+function formatPace(secPerKm) {
+  if (!secPerKm || !isFinite(secPerKm) || isNaN(secPerKm)) return "—";
+  const m = Math.floor(secPerKm / 60);
+  const s = Math.round(secPerKm % 60);
+  return `${m}:${String(s).padStart(2, "0")}/km`;
+}
+function mondayOf(date) {
+  const d = new Date(date);
+  const day = d.getDay();
+  d.setDate(d.getDate() - ((day + 6) % 7));
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+function weeklyKm() {
+  const monday = mondayOf(new Date());
+  return state.runs
+    .filter((r) => new Date(r.date + "T00:00:00") >= monday)
+    .reduce((sum, r) => sum + (r.km || 0), 0);
+}
+function historicAvgPace() {
+  const totalSec = state.runs.reduce((s, r) => s + (r.totalTimeSec || 0), 0);
+  const totalKm = state.runs.reduce((s, r) => s + (r.km || 0), 0);
+  if (!totalKm) return null;
+  return totalSec / totalKm;
+}
+function estimateCalories(km) {
+  const last = state.assessments[state.assessments.length - 1];
+  const peso = last ? last.peso : null;
+  if (!peso || !km) return null;
+  return Math.round(peso * km * 1.036);
+}
+
+document.getElementById("corrida-input").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  try {
+    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    const text = isPdf ? await extractPdfText(file) : await file.text();
+    const suggestions = parseRunSuggestions(text);
+    if (suggestions.length === 0) {
+      toast("Não encontrei sugestões de corrida nesse arquivo");
+      return;
+    }
+    state.runPlans = suggestions;
+    saveState();
+    toast("Sugestões importadas ✓");
+    render();
+  } catch (err) {
+    console.error(err);
+    toast("Erro ao ler o arquivo");
+  }
+});
+
+function parseRunSuggestions(text) {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const dayRe = /^(segunda|ter[çc]a|quarta|quinta|sexta|s[áa]bado|domingo)[^:\-–]*[:\-–]\s*(.+)$/i;
+  const out = [];
+  lines.forEach((line) => {
+    const m = line.match(dayRe);
+    if (m) out.push({ id: uid(), dia: m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase(), descricao: m[2].trim() });
+  });
+  return out;
+}
+
+function openRunLogModal() {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="modal">
+      <h3>Registrar corrida</h3>
+      <label>Data</label>
+      <input type="date" id="r-data" value="${todayISO()}">
+      <label>Distância (km)</label>
+      <input type="text" id="r-km" placeholder="ex: 5.2">
+      <label>Tempo total (mm:ss ou h:mm:ss)</label>
+      <input type="text" id="r-tempo" placeholder="ex: 32:15">
+      <div class="check-row">
+        <input type="checkbox" id="r-misto">
+        <label style="margin:0;" for="r-misto">Foi circuito misto (andei + corri)</label>
+      </div>
+      <div id="r-misto-fields" style="display:none;">
+        <label>Tempo andando (mm:ss)</label>
+        <input type="text" id="r-tempo-andei" placeholder="ex: 10:00">
+        <label>Tempo correndo (mm:ss)</label>
+        <input type="text" id="r-tempo-correu" placeholder="ex: 22:15">
+      </div>
+      <label>Calorias gastas (kcal)</label>
+      <input type="text" id="r-calorias" placeholder="ex: 320">
+      <button class="btn secondary small" id="r-estimar" style="margin-bottom:10px;">Estimar calorias</button>
+      <button class="btn" id="confirm-run">Salvar corrida</button>
+      <div style="height:8px"></div>
+      <button class="btn secondary" id="cancel-run">Cancelar</button>
+    </div>`;
+  document.body.appendChild(backdrop);
+  backdrop.querySelector("#cancel-run").addEventListener("click", () => backdrop.remove());
+  backdrop.querySelector("#r-misto").addEventListener("change", (e) => {
+    backdrop.querySelector("#r-misto-fields").style.display = e.target.checked ? "block" : "none";
+  });
+  backdrop.querySelector("#r-estimar").addEventListener("click", () => {
+    const km = parseFloat(backdrop.querySelector("#r-km").value.replace(",", "."));
+    const est = estimateCalories(km);
+    if (est) {
+      backdrop.querySelector("#r-calorias").value = est;
+      toast("Estimativa preenchida (baseada no seu último peso registrado)");
+    } else {
+      toast("Preencha a distância e registre uma avaliação com peso primeiro");
+    }
+  });
+  backdrop.querySelector("#confirm-run").addEventListener("click", () => {
+    const km = parseFloat(backdrop.querySelector("#r-km").value.replace(",", "."));
+    const totalTimeSec = parseTimeToSeconds(backdrop.querySelector("#r-tempo").value);
+    if (!km || !totalTimeSec) {
+      toast("Preencha ao menos a distância e o tempo total");
+      return;
+    }
+    const isMixed = backdrop.querySelector("#r-misto").checked;
+    const walkTimeSec = isMixed ? parseTimeToSeconds(backdrop.querySelector("#r-tempo-andei").value) : null;
+    const runTimeSec = isMixed ? parseTimeToSeconds(backdrop.querySelector("#r-tempo-correu").value) : null;
+    const calorias = parseFloat(backdrop.querySelector("#r-calorias").value) || null;
+    const record = {
+      id: uid(),
+      date: backdrop.querySelector("#r-data").value || todayISO(),
+      km,
+      totalTimeSec,
+      isMixed,
+      walkTimeSec,
+      runTimeSec,
+      calorias,
+      paceSecPerKm: totalTimeSec / km,
+    };
+    state.runs.push(record);
+    state.runs.sort((a, b) => a.date.localeCompare(b.date));
+    saveState();
+    backdrop.remove();
+    toast("Corrida registrada ✓");
+    render();
+  });
+}
+
+function openRunAddModal() {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="modal">
+      <h3>Minha Corrida</h3>
+      <button class="btn" id="opt-log-run">Registrar corrida</button>
+      <div style="height:10px"></div>
+      <button class="btn secondary" id="opt-import-suggestions">Importar sugestões do Gemini (PDF/TXT)</button>
+      <div style="height:10px"></div>
+      <button class="btn secondary" id="opt-cancel">Cancelar</button>
+    </div>`;
+  document.body.appendChild(backdrop);
+  backdrop.querySelector("#opt-cancel").addEventListener("click", () => backdrop.remove());
+  backdrop.querySelector("#opt-log-run").addEventListener("click", () => {
+    backdrop.remove();
+    openRunLogModal();
+  });
+  backdrop.querySelector("#opt-import-suggestions").addEventListener("click", () => {
+    backdrop.remove();
+    document.getElementById("corrida-input").click();
+  });
+}
+
+function renderCorrida(view) {
+  const runs = state.runs;
+  const avgPace = historicAvgPace();
+  const kmWeek = weeklyKm();
+
+  const suggestionsCard = state.runPlans.length
+    ? `<div class="card">
+        <div class="label" style="color:var(--chalk-dim); font-size:12px; margin-bottom:6px;">Sugestões do Gemini</div>
+        ${state.runPlans.map((p) => `<div class="suggestion-item"><span class="day">${p.dia}:</span>${p.descricao}</div>`).join("")}
+      </div>`
+    : "";
+
+  if (runs.length === 0) {
+    view.innerHTML = `
+      <div class="section-title">Minha Corrida</div>
+      ${suggestionsCard}
+      <div class="empty">
+        <div class="empty-mark">≈</div>
+        <p>Nenhuma corrida registrada ainda.<br>Toque no "+" para registrar sua primeira corrida.</p>
+      </div>
+      <div style="height:70px"></div>`;
+    addRunFab(view);
+    return;
+  }
+
+  function evoBars(getVal, formatter) {
+    const entries = runs.slice(-8);
+    const maxVal = Math.max(...entries.map(getVal), 0.01);
+    return entries
+      .map((r) => {
+        const val = getVal(r);
+        const pct = Math.max(6, (val / maxVal) * 100);
+        const shortDate = r.date.slice(5).split("-").reverse().join("/");
+        return `<div class="bar-row">
+          <div class="bar-date">${shortDate}</div>
+          <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+          <div class="bar-val">${formatter(r)}</div>
+        </div>`;
+      })
+      .join("");
+  }
+
+  const historyRows = [...runs]
+    .reverse()
+    .map(
+      (r) => `<div class="run-list-item">
+        <div class="info">
+          <div class="d1">${r.date.split("-").reverse().join("/")} — ${r.km} km</div>
+          <div class="d2">${formatSecondsToClock(r.totalTimeSec)} · ${formatPace(r.paceSecPerKm)}${r.isMixed ? ` · andou ${formatSecondsToClock(r.walkTimeSec)} / correu ${formatSecondsToClock(r.runTimeSec)}` : ""}${r.calorias ? ` · ${r.calorias} kcal` : ""}</div>
+        </div>
+        <button class="del" data-del-run="${r.id}">excluir</button>
+      </div>`
+    )
+    .join("");
+
+  view.innerHTML = `
+    <div class="section-title">Minha Corrida</div>
+    ${suggestionsCard}
+    <div class="stat-row">
+      <div class="stat-box"><div class="stat-num">${kmWeek.toFixed(1)}</div><div class="stat-label">km essa semana</div></div>
+      <div class="stat-box"><div class="stat-num">${formatPace(avgPace)}</div><div class="stat-label">pace médio histórico</div></div>
+      <div class="stat-box"><div class="stat-num">${runs.length}</div><div class="stat-label">corridas registradas</div></div>
+    </div>
+
+    <div class="section-title" style="font-size:18px;">Evolução — distância</div>
+    <div class="card">${evoBars((r) => r.km, (r) => r.km + " km")}</div>
+
+    <div class="section-title" style="font-size:18px;">Evolução — pace</div>
+    <div class="card">${evoBars((r) => r.paceSecPerKm, (r) => formatPace(r.paceSecPerKm))}</div>
+
+    <div class="section-title" style="font-size:18px;">Histórico</div>
+    <div class="card">${historyRows}</div>
+    <div style="height:70px"></div>
+  `;
+
+  view.querySelectorAll("[data-del-run]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      if (confirm("Excluir esta corrida?")) {
+        state.runs = state.runs.filter((r) => r.id !== btn.dataset.delRun);
+        saveState();
+        render();
+      }
+    })
+  );
+
+  addRunFab(view);
+}
+
+function addRunFab(view) {
+  const fab = document.createElement("button");
+  fab.className = "fab";
+  fab.textContent = "+";
+  view.appendChild(fab);
+  fab.addEventListener("click", openRunAddModal);
 }
 
 /* ============ INIT ============ */

@@ -3,19 +3,25 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
-<title>Treino</title>
+<title>Meu Treino</title>
 <link rel="manifest" href="manifest.json">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Treino">
+<meta name="apple-mobile-web-app-title" content="Meu Treino">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
-<meta name="theme-color" content="#1C1B1A">
+<meta name="theme-color" content="#000000">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
 <header class="topbar">
-  <span class="brand">TREINO</span>
+  <div class="brand-block">
+    <span class="brand">MEU TREINO</span>
+    <svg class="ecg" viewBox="0 0 400 20" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M0,10 H30 L34,2 L38,18 L42,10 H110 L114,2 L118,18 L122,10 H190 L194,2 L198,18 L202,10 H270 L274,2 L278,18 L282,10 H350 L354,2 L358,18 L362,10 H400"
+            stroke="#E5433A" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </div>
   <span class="topbar-date" id="topbar-date"></span>
 </header>
 
@@ -24,11 +30,15 @@
 <nav class="tabbar">
   <button class="tab" data-tab="hoje">
     <span class="tab-mark">●</span>
-    <span>Hoje</span>
+    <span>Treino de hoje</span>
   </button>
   <button class="tab" data-tab="treinos">
     <span class="tab-mark">▤</span>
-    <span>Treinos</span>
+    <span>Meu Treino</span>
+  </button>
+  <button class="tab" data-tab="corrida">
+    <span class="tab-mark">≈</span>
+    <span>Minha Corrida</span>
   </button>
   <button class="tab" data-tab="progresso">
     <span class="tab-mark">▲</span>
@@ -36,12 +46,13 @@
   </button>
   <button class="tab" data-tab="avaliacao">
     <span class="tab-mark">◆</span>
-    <span>Avaliação</span>
+    <span>Avaliações</span>
   </button>
 </nav>
 
 <input type="file" id="pdf-input" accept=".pdf,.txt,application/pdf,text/plain" style="display:none">
 <input type="file" id="assessment-pdf-input" accept="application/pdf" style="display:none">
+<input type="file" id="corrida-input" accept=".pdf,.txt,application/pdf,text/plain" style="display:none">
 
 <script src="vendor/pdf.min.js"></script>
 <script src="app.js"></script>
