@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Meu Treino</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -22,22 +22,26 @@
         input, select, textarea {
             color-scheme: dark;
         }
+        /* Ajuste para evitar corte da barra do iOS Safari */
+        .pb-safe {
+            padding-bottom: calc(4rem + env(safe-area-inset-bottom));
+        }
     </style>
 </head>
-<body class="bg-black text-white flex flex-col h-screen max-w-md mx-auto relative overflow-hidden select-none">
+<body class="bg-black text-white flex flex-col h-screen w-full relative overflow-hidden select-none">
 
-    <!-- HEADER / LOGO "MEU TREINO" COM ELETROCARDIOGRAMA VERMELHO -->
-    <header class="flex flex-col items-center justify-center pt-4 pb-3 border-b border-zinc-900 bg-black z-10 shrink-0">
+    <!-- HEADER / LOGO MEU TREINO -->
+    <header class="flex flex-col items-center justify-center pt-4 pb-2 border-b border-zinc-900 bg-black z-20 shrink-0">
         <h1 class="text-xl font-black tracking-widest text-white uppercase">MEU TREINO</h1>
         <svg class="w-48 h-5 mt-1" viewBox="0 0 200 30" preserveAspectRatio="none">
             <path class="ecg-line" d="M0 15 L50 15 L55 5 L60 25 L65 8 L70 20 L75 15 L200 15"/>
         </svg>
     </header>
 
-    <!-- CONTEÚDO PRINCIPAL (ABAS) -->
-    <main class="flex-1 overflow-y-auto pb-24 px-4 pt-4">
+    <!-- CONTEÚDO PRINCIPAL (ÁREA ROLÁVEL) -->
+    <main class="flex-1 overflow-y-auto px-4 pt-4 pb-safe">
         
-        <!-- ABA 1: TREINO DE HOJE (Timer Geral + Assistente TDAH) -->
+        <!-- ABA 1: TREINO DE HOJE -->
         <section id="tab-treino-hoje" class="tab-content space-y-4">
             
             <!-- Cronômetro Geral -->
@@ -55,7 +59,7 @@
                 </div>
             </div>
 
-            <!-- Bloco do Exercício Atual + Controle de Séries -->
+            <!-- Bloco do Exercício Atual + Timer Duplo -->
             <div class="bg-zinc-950 border border-zinc-800 rounded-2xl p-4 space-y-4 shadow-lg">
                 <div class="flex justify-between items-start">
                     <div>
@@ -65,47 +69,61 @@
                     <span id="current-set-badge" class="bg-zinc-800 border border-zinc-700 text-white text-xs px-3 py-1 rounded-full font-bold">Série 1 / 4</span>
                 </div>
 
-                <!-- Display do Timer de Descanso com Acréscimo estilo Futebol -->
+                <!-- Display do Timer -->
                 <div class="bg-black border border-zinc-900 p-4 rounded-xl text-center relative overflow-hidden">
-                    <span class="text-[10px] text-zinc-400 uppercase tracking-wider block mb-1">Timer de Execução & Descanso</span>
+                    <span id="rest-title-label" class="text-[10px] text-zinc-400 uppercase tracking-wider block mb-1">Aguardando Início</span>
                     <div id="rest-timer-display" class="text-3xl font-mono font-black text-white tracking-widest my-1">00:00</div>
-                    <div id="rest-status-text" class="text-xs text-zinc-400 font-medium">Descanso programado: 60s</div>
+                    <div id="rest-status-text" class="text-xs text-zinc-400 font-medium">Toque em "Iniciar Série" ao começar</div>
                 </div>
 
                 <!-- Botões de Controle TDAH -->
                 <div class="grid grid-cols-2 gap-2 pt-1">
-                    <button onclick="startSet()" class="bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-3 rounded-xl text-xs border border-zinc-700 transition-colors">▶ Iniciar Série</button>
+                    <button onclick="startSet()" class="bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-3 rounded-xl text-xs border border-zinc-700 transition-colors flex items-center justify-center gap-1">▶ Iniciar Série</button>
                     <button onclick="finishSet('normal')" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl text-xs transition-colors">✓ Terminei</button>
                     <button onclick="finishSet('failed')" class="bg-amber-600 hover:bg-amber-500 text-white font-bold py-3 rounded-xl text-xs transition-colors">⚠ Não terminei</button>
                     <button onclick="finishSet('over')" class="bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-xl text-xs transition-colors">🔥 Até a falha</button>
                 </div>
             </div>
 
-            <!-- Lista de Exercícios -->
+            <!-- Lista Completa de Exercícios de Hoje -->
             <div class="bg-zinc-950 border border-zinc-800 rounded-2xl p-4">
                 <h3 class="font-bold text-white mb-3 text-sm flex items-center justify-between">
                     <span>Exercícios de Hoje</span>
-                    <span class="text-[10px] text-zinc-500 font-normal">4 exercícios</span>
+                    <span class="text-[10px] text-zinc-500 font-normal">5 exercícios</span>
                 </h3>
                 <div id="exercises-list-today" class="space-y-2 text-xs">
-                    <div class="p-2.5 bg-black border border-zinc-900 rounded-xl flex justify-between items-center">
+                    <div class="p-2.5 bg-black border border-zinc-800 rounded-xl flex justify-between items-center">
                         <div>
                             <p class="font-bold text-white">1. Supino Reto com Halteres</p>
                             <p class="text-[10px] text-zinc-400">4 séries x 10 a 12 repetições</p>
                         </div>
-                        <span class="text-[10px] bg-zinc-800 text-zinc-300 px-2 py-0.5 rounded">Em andamento</span>
+                        <span class="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800 px-2 py-0.5 rounded font-bold">Em andamento</span>
                     </div>
-                    <div class="p-2.5 bg-black border border-zinc-900 rounded-xl flex justify-between items-center opacity-60">
+                    <div class="p-2.5 bg-black border border-zinc-900 rounded-xl flex justify-between items-center opacity-70">
                         <div>
                             <p class="font-bold text-white">2. Desenvolvimento de Ombros</p>
                             <p class="text-[10px] text-zinc-400">3 séries x 12 repetições</p>
                         </div>
                         <span class="text-[10px] bg-zinc-900 text-zinc-500 px-2 py-0.5 rounded">Pendente</span>
                     </div>
-                    <div class="p-2.5 bg-black border border-zinc-900 rounded-xl flex justify-between items-center opacity-60">
+                    <div class="p-2.5 bg-black border border-zinc-900 rounded-xl flex justify-between items-center opacity-70">
                         <div>
-                            <p class="font-bold text-white">3. Tríceps Corda</p>
-                            <p class="text-[10px] text-zinc-400">4 séries x 15 repetições</p>
+                            <p class="font-bold text-white">3. Elevação Lateral</p>
+                            <p class="text-[10px] text-zinc-400">3 séries x 15 repetições</p>
+                        </div>
+                        <span class="text-[10px] bg-zinc-900 text-zinc-500 px-2 py-0.5 rounded">Pendente</span>
+                    </div>
+                    <div class="p-2.5 bg-black border border-zinc-900 rounded-xl flex justify-between items-center opacity-70">
+                        <div>
+                            <p class="font-bold text-white">4. Tríceps Corda</p>
+                            <p class="text-[10px] text-zinc-400">4 séries x 12 a 15 repetições</p>
+                        </div>
+                        <span class="text-[10px] bg-zinc-900 text-zinc-500 px-2 py-0.5 rounded">Pendente</span>
+                    </div>
+                    <div class="p-2.5 bg-black border border-zinc-900 rounded-xl flex justify-between items-center opacity-70">
+                        <div>
+                            <p class="font-bold text-white">5. Abdominal Infra na Barra</p>
+                            <p class="text-[10px] text-zinc-400">3 séries até a falha</p>
                         </div>
                         <span class="text-[10px] bg-zinc-900 text-zinc-500 px-2 py-0.5 rounded">Pendente</span>
                     </div>
@@ -117,28 +135,28 @@
         <section id="tab-meu-treino" class="tab-content hidden space-y-4">
             <div class="flex justify-between items-center">
                 <h2 class="text-base font-bold text-white uppercase tracking-wider">Minhas Rotinas</h2>
-                <button onclick="alert('Funcionalidade de adicionar rotina')" class="text-xs bg-zinc-800 text-white font-bold px-3 py-1.5 rounded-lg border border-zinc-700">+ Nova</button>
+                <button onclick="alert('Opção de criar nova rotina')" class="text-xs bg-zinc-800 text-white font-bold px-3 py-1.5 rounded-lg border border-zinc-700">+ Nova</button>
             </div>
 
             <div class="bg-zinc-950 border border-zinc-800 rounded-2xl p-4 space-y-3">
                 <div class="flex justify-between items-center border-b border-zinc-900 pb-3">
                     <div>
-                        <h3 class="font-bold text-white text-sm">Treino A - Superior & Core</h3>
-                        <p class="text-xs text-zinc-400">Peito, Ombros, Tríceps e Abdominais</p>
+                        <h3 class="font-bold text-white text-sm">Treino A - Peito, Ombro & Tríceps</h3>
+                        <p class="text-xs text-zinc-400">5 Exercícios • Foco Hipertrofia</p>
                     </div>
                     <button class="text-xs bg-white text-black font-bold px-3 py-1.5 rounded-lg">Ativo</button>
                 </div>
                 <div class="flex justify-between items-center border-b border-zinc-900 pb-3">
                     <div>
-                        <h3 class="font-bold text-white text-sm">Treino B - Dorsais & Bíceps</h3>
-                        <p class="text-xs text-zinc-400">Puxadas, Remadas e Roscas</p>
+                        <h3 class="font-bold text-white text-sm">Treino B - Costas, Bíceps & Core</h3>
+                        <p class="text-xs text-zinc-400">5 Exercícios • Puxadas e Remadas</p>
                     </div>
                     <button class="text-xs bg-zinc-800 text-white font-bold px-3 py-1.5 rounded-lg">Selecionar</button>
                 </div>
                 <div class="flex justify-between items-center">
                     <div>
-                        <h3 class="font-bold text-white text-sm">Treino C - Membros Inferiores</h3>
-                        <p class="text-xs text-zinc-400">Agachamento, Leg Press, Panturrilhas</p>
+                        <h3 class="font-bold text-white text-sm">Treino C - Pernas & Panturrilhas</h3>
+                        <p class="text-xs text-zinc-400">4 Exercícios • Inferiores Completo</p>
                     </div>
                     <button class="text-xs bg-zinc-800 text-white font-bold px-3 py-1.5 rounded-lg">Selecionar</button>
                 </div>
@@ -148,25 +166,24 @@
         <!-- ABA 3: MINHA CORRIDA -->
         <section id="tab-minha-corrida" class="tab-content hidden space-y-4">
             
-            <!-- Sugestões da Planilha Gemini -->
             <div class="bg-zinc-950 border border-zinc-800 rounded-2xl p-4 space-y-2">
                 <div class="flex justify-between items-center">
                     <h2 class="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
                         <span class="w-2 h-2 rounded-full bg-red-500"></span>
-                        Sugestões de Corrida (Gemini)
+                        Planilha do Aluno
                     </h2>
                 </div>
                 <div id="gemini-running-suggestion" class="bg-black border border-zinc-900 p-3 rounded-xl text-xs text-zinc-300 leading-relaxed">
-                    Nenhuma sugestão enviada recentemente. Solicite no chat para gerar sua planilha semanal personalizada!
+                    Acompanhe aqui seus treinos de corrida outdoor/esteira e circuitos mistos (caminhada + corrida).
                 </div>
             </div>
 
-            <!-- Registro de Corrida -->
+            <!-- Formulário Registro de Corrida -->
             <div class="bg-zinc-950 border border-zinc-800 rounded-2xl p-4 space-y-3">
-                <h2 class="text-sm font-bold text-white uppercase tracking-wider">Registrar Corrida</h2>
+                <h2 class="text-sm font-bold text-white uppercase tracking-wider">Registrar Treino de Corrida</h2>
                 <form id="run-form" onsubmit="saveRun(event)" class="space-y-3 text-xs">
                     <div>
-                        <label class="text-zinc-400 block mb-1">Data da Corrida</label>
+                        <label class="text-zinc-400 block mb-1">Data</label>
                         <input type="date" id="run-date" class="w-full bg-black border border-zinc-800 rounded-xl p-2.5 text-white font-bold focus:outline-none focus:border-zinc-500" required>
                     </div>
                     <div class="grid grid-cols-2 gap-2">
@@ -181,30 +198,29 @@
                     </div>
                     <div class="grid grid-cols-2 gap-2">
                         <div>
-                            <label class="text-zinc-400 block mb-1">Circuito Misto: Andando (min)</label>
-                            <input type="number" id="run-walk-time" class="w-full bg-black border border-zinc-800 rounded-xl p-2.5 text-white font-bold focus:outline-none focus:border-zinc-500" placeholder="0">
+                            <label class="text-zinc-400 block mb-1">Circuito: Andando (min)</label>
+                            <input type="number" id="run-walk-time" class="w-full bg-black border border-zinc-800 rounded-xl p-2.5 text-white font-bold focus:outline-none" placeholder="0">
                         </div>
                         <div>
-                            <label class="text-zinc-400 block mb-1">Circuito Misto: Correndo (min)</label>
-                            <input type="number" id="run-run-time" class="w-full bg-black border border-zinc-800 rounded-xl p-2.5 text-white font-bold focus:outline-none focus:border-zinc-500" placeholder="0">
+                            <label class="text-zinc-400 block mb-1">Circuito: Correndo (min)</label>
+                            <input type="number" id="run-run-time" class="w-full bg-black border border-zinc-800 rounded-xl p-2.5 text-white font-bold focus:outline-none" placeholder="0">
                         </div>
                     </div>
                     <div>
                         <label class="text-zinc-400 block mb-1">Calorias Gastas (kcal)</label>
-                        <input type="number" id="run-calories" class="w-full bg-black border border-zinc-800 rounded-xl p-2.5 text-white font-bold focus:outline-none focus:border-zinc-500" placeholder="350">
+                        <input type="number" id="run-calories" class="w-full bg-black border border-zinc-800 rounded-xl p-2.5 text-white font-bold focus:outline-none" placeholder="350">
                     </div>
                     <button type="submit" class="w-full bg-white hover:bg-zinc-200 text-black font-bold py-3 rounded-xl text-xs transition-colors mt-2">Salvar Corrida</button>
                 </form>
             </div>
 
-            <!-- Métricas -->
             <div class="grid grid-cols-2 gap-2">
                 <div class="bg-zinc-950 border border-zinc-800 rounded-2xl p-3 text-center">
-                    <span class="text-[10px] text-zinc-400 uppercase tracking-wider block">KM na Semana</span>
+                    <span class="text-[10px] text-zinc-400 uppercase tracking-wider block">KM Acumulados</span>
                     <span id="stat-weekly-km" class="text-xl font-black text-white mt-0.5 block">0.0 km</span>
                 </div>
                 <div class="bg-zinc-950 border border-zinc-800 rounded-2xl p-3 text-center">
-                    <span class="text-[10px] text-zinc-400 uppercase tracking-wider block">Pace Médio Histórico</span>
+                    <span class="text-[10px] text-zinc-400 uppercase tracking-wider block">Pace Médio</span>
                     <span id="stat-avg-pace" class="text-xl font-black text-white mt-0.5 block">0'00"</span>
                 </div>
             </div>
@@ -212,10 +228,9 @@
 
         <!-- ABA 4: PROGRESSO -->
         <section id="tab-progresso" class="tab-content hidden space-y-4">
-            
             <div class="grid grid-cols-3 gap-2">
                 <div class="bg-zinc-950 border border-zinc-800 rounded-2xl p-3 text-center">
-                    <span id="stat-streak" class="text-lg font-black text-white block">0</span>
+                    <span id="stat-streak" class="text-lg font-black text-white block">1</span>
                     <span class="text-[10px] text-zinc-400 block">dias seguidos</span>
                 </div>
                 <div class="bg-zinc-950 border border-zinc-800 rounded-2xl p-3 text-center">
@@ -228,10 +243,9 @@
                 </div>
             </div>
 
-            <!-- Calendário Adaptativo Mobile -->
             <div class="bg-zinc-950 border border-zinc-800 rounded-2xl p-3.5 space-y-3">
                 <div class="flex justify-between items-center border-b border-zinc-900 pb-2">
-                    <h3 id="calendar-month-year" class="text-xs font-bold text-white uppercase tracking-wider">Setembro 2026</h3>
+                    <h3 class="text-xs font-bold text-white uppercase tracking-wider">Setembro 2026</h3>
                     <span class="text-[10px] text-zinc-500 font-medium">Frequência mensal</span>
                 </div>
                 
@@ -239,27 +253,21 @@
                     <span>Dom</span><span>Seg</span><span>Ter</span><span>Qua</span><span>Qui</span><span>Sex</span><span>Sáb</span>
                 </div>
                 
-                <div id="calendar-grid" class="grid grid-cols-7 gap-1 text-center text-xs">
-                    <!-- Gerado via JS -->
-                </div>
+                <div id="calendar-grid" class="grid grid-cols-7 gap-1 text-center text-xs"></div>
             </div>
         </section>
 
         <!-- ABA 5: AVALIAÇÕES -->
         <section id="tab-avaliacoes" class="tab-content hidden space-y-4">
-            
-            <!-- Relatório Gemini -->
             <div class="bg-zinc-950 border border-zinc-800 rounded-2xl p-4 space-y-3">
-                <h2 class="text-sm font-bold text-white uppercase tracking-wider">Relatório para Reavaliação</h2>
-                <p class="text-xs text-zinc-400 leading-relaxed">Gere o relatório estruturado com suas falhas, tempos e corridas para colar no Gemini quando for ajustar sua ficha de treinos.</p>
+                <h2 class="text-sm font-bold text-white uppercase tracking-wider">Relatório de Desempenho</h2>
+                <p class="text-xs text-zinc-400 leading-relaxed">Gere o resumo com falhas e registros para colar nas nossas conversas de ajuste de treino.</p>
                 <button onclick="generateReport()" class="w-full bg-white hover:bg-zinc-200 text-black font-bold py-2.5 rounded-xl text-xs transition-colors">Gerar & Copiar Relatório</button>
                 <textarea id="report-output" readonly class="w-full bg-black border border-zinc-800 rounded-xl p-3 text-[10px] text-zinc-300 h-28 resize-none font-mono focus:outline-none" placeholder="O relatório aparecerá aqui..."></textarea>
             </div>
 
-            <!-- Backup de Dados -->
             <div class="bg-zinc-950 border border-zinc-800 rounded-2xl p-4 space-y-3">
                 <h2 class="text-sm font-bold text-white uppercase tracking-wider">Backup de Dados</h2>
-                <p class="text-xs text-zinc-400 leading-relaxed">Exporte o arquivo de backup para não perder seu histórico ao lançar atualizações no GitHub.</p>
                 <div class="flex gap-2">
                     <button onclick="exportBackup()" class="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-2.5 rounded-xl text-xs transition-colors border border-zinc-700">Exportar JSON</button>
                     <label class="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-2.5 rounded-xl text-xs text-center cursor-pointer transition-colors border border-zinc-700">
@@ -272,19 +280,19 @@
 
     </main>
 
-    <!-- MENU INFERIOR -->
-    <nav class="absolute bottom-0 left-0 right-0 bg-black border-t border-zinc-900 grid grid-cols-5 py-2.5 px-1 text-[9px] z-20 shrink-0">
+    <!-- MENU INFERIOR FIXO DENTRO DA VIEWPORT DO IPHONE -->
+    <nav class="fixed bottom-0 left-0 right-0 bg-black/95 backdrop-blur-md border-t border-zinc-900 grid grid-cols-5 py-3 px-1 text-[9px] z-50">
         <button onclick="switchTab('treino-hoje', this)" class="nav-btn flex flex-col items-center text-white font-bold">
             <span class="w-1.5 h-1.5 rounded-full bg-white mb-1 indicator"></span>
-            Treino de hoje
+            Hoje
         </button>
         <button onclick="switchTab('meu-treino', this)" class="nav-btn flex flex-col items-center text-zinc-500">
             <span class="w-1.5 h-1.5 rounded-full bg-transparent mb-1 indicator"></span>
-            Meu Treino
+            Treinos
         </button>
         <button onclick="switchTab('minha-corrida', this)" class="nav-btn flex flex-col items-center text-zinc-500">
             <span class="w-1.5 h-1.5 rounded-full bg-transparent mb-1 indicator"></span>
-            Minha Corrida
+            Corrida
         </button>
         <button onclick="switchTab('progresso', this)" class="nav-btn flex flex-col items-center text-zinc-500">
             <span class="w-1.5 h-1.5 rounded-full bg-transparent mb-1 indicator"></span>
@@ -292,20 +300,20 @@
         </button>
         <button onclick="switchTab('avaliacoes', this)" class="nav-btn flex flex-col items-center text-zinc-500">
             <span class="w-1.5 h-1.5 rounded-full bg-transparent mb-1 indicator"></span>
-            Avaliações
+            Avaliação
         </button>
     </nav>
 
-    <!-- JAVASCRIPT -->
+    <!-- JAVASCRIPT CORRIGIDO -->
     <script>
-        let db = JSON.parse(localStorage.getItem('meu_treino_db_v4')) || {
+        let db = JSON.parse(localStorage.getItem('meu_treino_db_v5')) || {
             runs: [],
             workoutLogs: [],
-            streak: 0
+            streak: 1
         };
 
         function saveData() {
-            localStorage.setItem('meu_treino_db_v4', JSON.stringify(db));
+            localStorage.setItem('meu_treino_db_v5', JSON.stringify(db));
         }
 
         function switchTab(tabId, btnElement) {
@@ -328,7 +336,7 @@
             if(tabId === 'minha-corrida') updateRunStats();
         }
 
-        // Timer Geral
+        // Cronômetro Geral
         let generalSeconds = 0;
         let generalInterval = null;
 
@@ -369,30 +377,48 @@
             return `${hrs}:${mins}:${secs}`;
         }
 
-        // Timer de Descanso com Acréscimos
+        // Cronômetro do Exercício (Execução -> Descanso)
+        let activeTimer = null;
+        let setSeconds = 0;
         let restSeconds = 0;
         let targetRest = 60;
-        let restInterval = null;
+        let isExecutingSet = false;
         let currentSetState = 1;
 
         function startSet() {
-            clearInterval(restInterval);
-            document.getElementById('rest-timer-display').innerText = "00:00";
-            document.getElementById('rest-timer-display').className = "text-3xl font-mono font-black text-white tracking-widest my-1";
-            document.getElementById('rest-status-text').innerText = "Série em execução...";
+            clearInterval(activeTimer);
+            setSeconds = 0;
+            isExecutingSet = true;
+
+            const display = document.getElementById('rest-timer-display');
+            const statusText = document.getElementById('rest-status-text');
+            const label = document.getElementById('rest-title-label');
+
+            label.innerText = "Série em Execução";
+            display.className = "text-3xl font-mono font-black text-emerald-400 tracking-widest my-1 animate-pulse";
+            statusText.innerText = "Foco total na execução!";
+
+            activeTimer = setInterval(() => {
+                setSeconds++;
+                display.innerText = formatSecMin(setSeconds);
+            }, 1000);
         }
 
         function finishSet(type) {
-            clearInterval(restInterval);
+            clearInterval(activeTimer);
             restSeconds = 0;
+            isExecutingSet = false;
+
             const display = document.getElementById('rest-timer-display');
             const statusText = document.getElementById('rest-status-text');
+            const label = document.getElementById('rest-title-label');
 
             db.workoutLogs.push({
                 date: new Date().toISOString(),
                 type: type,
                 exercise: document.getElementById('current-exercise-name').innerText,
-                set: currentSetState
+                set: currentSetState,
+                duration: setSeconds
             });
             saveData();
 
@@ -400,8 +426,10 @@
             if(currentSetState > 4) currentSetState = 1;
             document.getElementById('current-set-badge').innerText = `Série ${currentSetState} / 4`;
 
-            statusText.innerText = `Descanso programado: ${targetRest}s`;
-            restInterval = setInterval(() => {
+            label.innerText = "Timer de Descanso";
+            statusText.innerText = `Meta: ${targetRest}s de descanso`;
+
+            activeTimer = setInterval(() => {
                 restSeconds++;
                 if(restSeconds <= targetRest) {
                     display.innerText = formatSecMin(targetRest - restSeconds);
@@ -411,7 +439,7 @@
                     const extra = restSeconds - targetRest;
                     display.innerText = `00:00 (+${formatSecMin(extra)})`;
                     display.className = "text-3xl font-mono font-black text-red-500 tracking-widest my-1 animate-pulse";
-                    statusText.innerText = `Descanso excedido! Tempo de acréscimo`;
+                    statusText.innerText = `Acréscimo de descanso!`;
                 }
             }, 1000);
         }
@@ -474,17 +502,15 @@
 
         // Relatório Gemini
         function generateReport() {
-            const report = `=== RELATÓRIO DE DESEMPENHO DO ATLETA (MEU TREINO) ===
+            const report = `=== RELATÓRIO DE DESEMPENHO (MEU TREINO) ===
 - Total de Séries Concluídas: ${db.workoutLogs.length}
 - Total de Corridas Registradas: ${db.runs.length}
-- Últimos Logs de Treino:
-${db.workoutLogs.slice(-6).map(l => `  * [${l.date.split('T')[0]}] ${l.exercise} (Série ${l.set}) -> Status: ${l.type}`).join('\n')}
-- Histórico de Corridas:
-${db.runs.slice(-3).map(r => `  * [${r.date}] ${r.km}km em ${r.time}min (Pace: ${r.pace})`).join('\n')}
-=====================================================`;
+- Registros Recentes:
+${db.workoutLogs.slice(-6).map(l => `  * [${l.date.split('T')[0]}] ${l.exercise} (Série ${l.set}) -> Status: ${l.type} | Duração: ${l.duration || 0}s`).join('\n')}
+==============================================`;
             document.getElementById('report-output').value = report;
             navigator.clipboard.writeText(report);
-            alert('Relatório gerado e copiado para a sua área de transferência!');
+            alert('Relatório copiado com sucesso!');
         }
 
         // Backup
@@ -504,10 +530,10 @@ ${db.runs.slice(-3).map(r => `  * [${r.date}] ${r.km}km em ${r.time}min (Pace: $
                     try {
                         db = JSON.parse(e.target.result);
                         saveData();
-                        alert('Backup importado com sucesso!');
+                        alert('Backup importado!');
                         location.reload();
                     } catch(err) {
-                        alert('Erro ao importar. O arquivo selecionado não é um backup válido.');
+                        alert('Erro ao importar o arquivo.');
                     }
                 }
             }
