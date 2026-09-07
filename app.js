@@ -35,10 +35,11 @@ function loadState() {
       if (!parsed.assessments) parsed.assessments = [];
       if (!parsed.runs) parsed.runs = [];
       if (!parsed.runPlans) parsed.runPlans = [];
+      if (!parsed.trainingLogs) parsed.trainingLogs = [];
       return parsed;
     }
   } catch (e) {}
-  return { workouts: [], sessions: [], assessments: [], runs: [], runPlans: [] };
+  return { workouts: [], sessions: [], assessments: [], runs: [], runPlans: [], trainingLogs: [] };
 }
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -110,6 +111,10 @@ function suggestTodayLetter() {
 }
 
 function renderHoje(view) {
+  if (liveSession) {
+    renderLiveSession(view);
+    return;
+  }
   if (state.workouts.length === 0) {
     view.innerHTML = `
       <div class="empty">
@@ -152,9 +157,14 @@ function renderHoje(view) {
     <div class="section-title">Treino de hoje</div>
     <div class="section-sub">${workout.foco || ""}</div>
     <div class="today-pick">${pills}</div>
+    <button class="btn" id="start-live-btn" style="margin-bottom:14px;">▶ Iniciar treino com cronômetro</button>
     <div class="card">${rows}</div>
-    <button class="btn" id="save-session-btn">Salvar treino de hoje</button>
+    <button class="btn secondary" id="save-session-btn">Salvar treino de hoje (sem cronômetro)</button>
   `;
+
+  document.getElementById("start-live-btn").addEventListener("click", () => {
+    startLiveSession(workout);
+  });
 
   view.querySelectorAll(".pill").forEach((p) =>
     p.addEventListener("click", () => {
@@ -187,6 +197,253 @@ function renderHoje(view) {
     toast("Treino de hoje salvo ✓");
     render();
   });
+}
+
+/* ============ CRONÔMETRO / SESSÃO GUIADA ============ */
+let liveSession = null;
+let liveTickInterval = null;
+
+function parseDescansoSeconds(str) {
+  if (!str) return 60;
+  const m = String(str).match(/(\d+)\s*(min|m|s|seg)?/i);
+  if (!m) return 60;
+  const n = parseInt(m[1], 10);
+  if (/^m/i.test(m[2] || "")) return n * 60;
+  return n;
+}
+
+function startLiveSession(workout) {
+  const exercises = workout.exercises.map((ex) => {
+    const last = lastLogFor(ex.nome);
+    return {
+      exId: ex.id,
+      nome: ex.nome,
+      isCardio: !!ex.isCardio,
+      plannedSeries: parseInt(ex.series, 10) || 1,
+      plannedReps: ex.reps || "",
+      plannedDescansoSec: ex.isCardio ? 0 : parseDescansoSeconds(ex.descanso),
+      carga: last ? last.carga : ex.carga || "",
+      sets: [],
+    };
+  });
+  liveSession = {
+    workoutId: workout.id,
+    workoutLetter: workout.letter,
+    startTime: Date.now(),
+    exIndex: 0,
+    setIndex: 1,
+    phase: "idle", // idle | set-running | resting | finished
+    setStartTime: null,
+    restStartTime: null,
+    exercises,
+  };
+  if (liveTickInterval) clearInterval(liveTickInterval);
+  liveTickInterval = setInterval(() => {
+    if (liveSession && (liveSession.phase === "set-running" || liveSession.phase === "resting") && currentTab === "hoje") {
+      render();
+    }
+  }, 1000);
+  render();
+}
+
+function currentLiveExercise() {
+  return liveSession ? liveSession.exercises[liveSession.exIndex] : null;
+}
+
+function liveStartSet() {
+  liveSession.phase = "set-running";
+  liveSession.setStartTime = Date.now();
+  render();
+}
+
+function liveFinishSet(status) {
+  const ex = currentLiveExercise();
+  let actualReps = ex.plannedReps;
+  if (status !== "completed") {
+    const input = window.prompt(
+      status === "failed_early" ? "Quantas repetições você conseguiu fazer?" : "Quantas repetições você fez até a falha?",
+      ex.plannedReps || ""
+    );
+    if (input !== null && input.trim() !== "") actualReps = input.trim();
+  }
+  const setElapsedSec = liveSession.setStartTime ? (Date.now() - liveSession.setStartTime) / 1000 : 0;
+  ex.sets.push({
+    setNumber: liveSession.setIndex,
+    status,
+    actualReps,
+    setElapsedSec: Math.round(setElapsedSec),
+    restPlannedSec: ex.plannedDescansoSec,
+    restActualSec: null,
+    overtimeSec: 0,
+  });
+  liveSession.setStartTime = null;
+
+  if (ex.plannedDescansoSec > 0) {
+    liveSession.phase = "resting";
+    liveSession.restStartTime = Date.now();
+  } else {
+    liveAdvance();
+  }
+  render();
+}
+
+function liveEndRest() {
+  const ex = currentLiveExercise();
+  const lastSet = ex.sets[ex.sets.length - 1];
+  const restElapsedSec = liveSession.restStartTime ? (Date.now() - liveSession.restStartTime) / 1000 : 0;
+  if (lastSet) {
+    lastSet.restActualSec = Math.round(restElapsedSec);
+    lastSet.overtimeSec = Math.max(0, Math.round(restElapsedSec - ex.plannedDescansoSec));
+  }
+  liveSession.restStartTime = null;
+  liveAdvance();
+  render();
+}
+
+function liveAdvance() {
+  const ex = currentLiveExercise();
+  liveSession.setIndex++;
+  if (liveSession.setIndex > ex.plannedSeries) {
+    liveSession.exIndex++;
+    liveSession.setIndex = 1;
+    if (liveSession.exIndex >= liveSession.exercises.length) {
+      liveSession.phase = "finished";
+      return;
+    }
+  }
+  liveSession.phase = "idle";
+}
+
+function liveCancelSession() {
+  if (confirm("Cancelar este treino sem salvar o progresso?")) {
+    if (liveTickInterval) clearInterval(liveTickInterval);
+    liveTickInterval = null;
+    liveSession = null;
+    render();
+  }
+}
+
+function liveFinalizeSession() {
+  const log = [];
+  liveSession.exercises.forEach((ex) => {
+    if (ex.sets.length === 0) return;
+    const lastSet = ex.sets[ex.sets.length - 1];
+    log.push({
+      exId: ex.exId,
+      nome: ex.nome,
+      series: String(ex.sets.length),
+      reps: lastSet.actualReps,
+      carga: ex.carga,
+    });
+  });
+  const workout = state.workouts.find((w) => w.id === liveSession.workoutId);
+  state.sessions.push({
+    id: uid(),
+    date: todayISO(),
+    workoutId: liveSession.workoutId,
+    workoutLetter: liveSession.workoutLetter,
+    log,
+  });
+  state.trainingLogs.push({
+    id: uid(),
+    date: todayISO(),
+    workoutLetter: liveSession.workoutLetter,
+    startTime: liveSession.startTime,
+    endTime: Date.now(),
+    exercises: liveSession.exercises.map((ex) => ({
+      nome: ex.nome,
+      plannedSeries: ex.plannedSeries,
+      plannedReps: ex.plannedReps,
+      plannedDescansoSec: ex.plannedDescansoSec,
+      carga: ex.carga,
+      sets: ex.sets,
+    })),
+  });
+  saveState();
+  if (liveTickInterval) clearInterval(liveTickInterval);
+  liveTickInterval = null;
+  liveSession = null;
+  toast("Treino finalizado e salvo ✓");
+  render();
+}
+
+function renderLiveSession(view) {
+  const s = liveSession;
+  const ex = currentLiveExercise();
+  const totalElapsed = Math.round((Date.now() - s.startTime) / 1000);
+
+  const dots = ex
+    ? Array.from({ length: ex.plannedSeries }, (_, i) => (i < ex.sets.length ? "●" : i + 1 === s.setIndex ? "◐" : "○")).join(" ")
+    : "";
+
+  let phaseBlock = "";
+  if (s.phase === "finished" || !ex) {
+    phaseBlock = `
+      <div class="card" style="text-align:center;">
+        <div style="font-size:17px; font-weight:700; margin-bottom:6px;">Treino concluído 🎉</div>
+        <div class="section-sub" style="margin-bottom:0;">Toque em "Finalizar e salvar" para registrar tudo.</div>
+      </div>`;
+  } else if (s.phase === "idle") {
+    phaseBlock = `
+      <div class="card">
+        <div class="exercise-name">${ex.nome}${ex.isCardio ? " 🏃" : ""}</div>
+        <div class="exercise-meta">Série ${s.setIndex} de ${ex.plannedSeries} · meta: ${ex.plannedReps || "—"} reps${ex.plannedDescansoSec ? " · descanso " + formatSecondsToClock(ex.plannedDescansoSec) : ""}</div>
+        <div style="font-size:18px; letter-spacing:3px; margin:10px 0;">${dots}</div>
+        <label>Carga (kg)</label>
+        <input type="text" id="live-carga" value="${ex.carga || ""}">
+        <button class="btn" id="live-start-set">▶ Iniciar série</button>
+      </div>`;
+  } else if (s.phase === "set-running") {
+    const setElapsed = Math.round((Date.now() - s.setStartTime) / 1000);
+    phaseBlock = `
+      <div class="card">
+        <div class="exercise-name">${ex.nome}</div>
+        <div class="exercise-meta">Série ${s.setIndex} de ${ex.plannedSeries} · meta: ${ex.plannedReps || "—"} reps · carga ${ex.carga || "—"}</div>
+        <div class="live-timer-big">${formatSecondsToClock(setElapsed)}</div>
+        <div class="live-btn-row">
+          <button class="btn" id="live-finish-ok">Terminei a série</button>
+          <button class="btn secondary" id="live-finish-early">Não terminei</button>
+          <button class="btn secondary" id="live-finish-failure">Fui até a falha</button>
+        </div>
+      </div>`;
+  } else if (s.phase === "resting") {
+    const restElapsed = (Date.now() - s.restStartTime) / 1000;
+    const remaining = ex.plannedDescansoSec - restElapsed;
+    const isOvertime = remaining < 0;
+    const timerHtml = isOvertime
+      ? `00:00 <span class="overtime">+${formatSecondsToClock(-remaining)}</span>`
+      : formatSecondsToClock(remaining);
+    phaseBlock = `
+      <div class="card">
+        <div class="exercise-name">Descanso</div>
+        <div class="exercise-meta">Próxima: série ${s.setIndex + 1 > ex.plannedSeries ? "1 (próximo exercício)" : s.setIndex + 1} de ${ex.plannedSeries}</div>
+        <div class="live-timer-big ${isOvertime ? "overtime" : ""}">${timerHtml}</div>
+        <button class="btn" id="live-end-rest">Próxima série</button>
+      </div>`;
+  }
+
+  view.innerHTML = `
+    <div class="section-title">Treino de hoje</div>
+    <div class="section-sub">Treino ${s.workoutLetter} em andamento · ${formatSecondsToClock(totalElapsed)}</div>
+    ${phaseBlock}
+    <button class="btn" id="live-finalize" style="margin-top:6px;">Finalizar e salvar</button>
+    <div style="height:8px"></div>
+    <button class="btn secondary" id="live-cancel">Cancelar treino</button>
+    <div style="height:70px"></div>
+  `;
+
+  const byId = (id) => view.querySelector("#" + id);
+  if (byId("live-start-set")) byId("live-start-set").addEventListener("click", liveStartSet);
+  if (byId("live-carga"))
+    byId("live-carga").addEventListener("change", (e) => {
+      ex.carga = e.target.value;
+    });
+  if (byId("live-finish-ok")) byId("live-finish-ok").addEventListener("click", () => liveFinishSet("completed"));
+  if (byId("live-finish-early")) byId("live-finish-early").addEventListener("click", () => liveFinishSet("failed_early"));
+  if (byId("live-finish-failure")) byId("live-finish-failure").addEventListener("click", () => liveFinishSet("to_failure"));
+  if (byId("live-end-rest")) byId("live-end-rest").addEventListener("click", liveEndRest);
+  byId("live-finalize").addEventListener("click", liveFinalizeSession);
+  byId("live-cancel").addEventListener("click", liveCancelSession);
 }
 
 /* ============ TREINOS ============ */

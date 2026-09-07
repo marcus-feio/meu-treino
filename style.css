@@ -489,6 +489,24 @@ label{
   z-index:20;
 }
 
+/* ---- cronômetro / sessão guiada ---- */
+.live-timer-big{
+  font-size:52px;
+  font-weight:800;
+  font-variant-numeric:tabular-nums;
+  text-align:center;
+  margin:14px 0;
+  letter-spacing:0.02em;
+  color:var(--chalk);
+}
+.live-timer-big.overtime{color:var(--rust);}
+.overtime{color:var(--rust); font-weight:800;}
+.live-btn-row{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+
 .toast{
   position:fixed;
   bottom:100px;
