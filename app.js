@@ -33,39 +33,18 @@ function loadState() {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (!parsed.assessments) parsed.assessments = [];
-      if (!parsed.activeWorkoutState) parsed.activeWorkoutState = null;
       return parsed;
     }
   } catch (e) {}
-  return { workouts: [], sessions: [], assessments: [], activeWorkoutState: null };
+  return { workouts: [], sessions: [], assessments: [] };
 }
-
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
-
 let state = loadState();
-
-// Variáveis Globais de Execução do Timer (V3)
-let activeTimer = null;
-let generalInterval = null;
-let generalSeconds = 0;
-let setSeconds = 0;
-let restSeconds = 0;
-let isExecutingSet = false;
-let currentExerciseIndex = 0;
-let currentSetState = 1;
-let totalSets = 3;
-let targetRest = 60;
 
 function uid() {
   return Math.random().toString(36).slice(2, 10);
-}
-
-function formatSecMin(secs) {
-  const m = Math.floor(secs / 60);
-  const s = secs % 60;
-  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
 /* ============ NAV ============ */
@@ -92,7 +71,6 @@ function render() {
 function formatDateLong(d) {
   return `${d.getDate()} de ${MONTHS[d.getMonth()]}`;
 }
-
 function todayISO() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -106,7 +84,7 @@ function toast(msg) {
   setTimeout(() => t.remove(), 1800);
 }
 
-/* ============ HOJE & EXECUÇÃO DO TREINO (V3) ============ */
+/* ============ HOJE ============ */
 function lastLogFor(exerciseName) {
   for (let i = state.sessions.length - 1; i >= 0; i--) {
     const entry = state.sessions[i].log.find((l) => l.nome === exerciseName);
@@ -114,7 +92,6 @@ function lastLogFor(exerciseName) {
   }
   return null;
 }
-
 function formatShortDate(iso) {
   const [y, m, d] = iso.split("-");
   return `${d}/${m}`;
@@ -127,105 +104,6 @@ function suggestTodayLetter() {
   const idx = state.workouts.findIndex((w) => w.id === lastSession.workoutId);
   const nextIdx = idx === -1 ? 0 : (idx + 1) % state.workouts.length;
   return state.workouts[nextIdx].letter;
-}
-
-function toggleGeneralTimer() {
-  if (generalInterval) {
-    clearInterval(generalInterval);
-    generalInterval = null;
-  } else {
-    generalInterval = setInterval(() => {
-      generalSeconds++;
-      const el = document.getElementById("general-timer-display");
-      if (el) el.innerText = formatSecMin(generalSeconds);
-    }, 1000);
-  }
-}
-
-function startSet() {
-  // Disparo automático do tempo geral se estivesse parado
-  if (!generalInterval) {
-    toggleGeneralTimer();
-  }
-
-  if (currentSetState > totalSets) return;
-
-  clearInterval(activeTimer);
-  setSeconds = 0;
-  isExecutingSet = true;
-
-  const display = document.getElementById("rest-timer-display");
-  const statusText = document.getElementById("rest-status-text");
-  const label = document.getElementById("rest-title-label");
-
-  if (label) label.innerText = `Série ${currentSetState} em Execução`;
-  if (display) {
-    display.className = "text-3xl font-mono font-black text-emerald-400 tracking-widest my-1 animate-pulse";
-  }
-  if (statusText) statusText.innerText = "Foco total na execução!";
-
-  activeTimer = setInterval(() => {
-    setSeconds++;
-    if (display) display.innerText = formatSecMin(setSeconds);
-  }, 1000);
-}
-
-function finishSet(type) {
-  // Trava de Segurança: bloqueia cliques de término durante o descanso
-  if (!isExecutingSet) return;
-
-  // Disparo automático do tempo geral se estivesse parado
-  if (!generalInterval) {
-    toggleGeneralTimer();
-  }
-
-  clearInterval(activeTimer);
-  restSeconds = 0;
-  isExecutingSet = false;
-
-  const display = document.getElementById("rest-timer-display");
-  const statusText = document.getElementById("rest-status-text");
-  const label = document.getElementById("rest-title-label");
-  const badge = document.getElementById("current-set-badge");
-
-  // Fim das séries do exercício atual
-  if (currentSetState >= totalSets) {
-    if (label) label.innerText = "Status do Exercício";
-    if (display) {
-      display.innerText = "CONCLUÍDO";
-      display.className = "text-2xl font-mono font-black text-emerald-500 tracking-widest my-1 flex items-center justify-center gap-2";
-    }
-    if (statusText) statusText.innerText = "Excelente trabalho! Vá para o próximo exercício.";
-    if (badge) {
-      badge.innerText = "Exercício concluído ✅";
-      badge.className = "text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 px-2.5 py-1 rounded-full";
-    }
-    return;
-  }
-
-  // Avança para a próxima série e roda o descanso
-  currentSetState++;
-  if (badge) badge.innerText = `Série ${currentSetState} / ${totalSets}`;
-  if (label) label.innerText = "Timer de Descanso";
-  if (statusText) statusText.innerText = `Meta: ${targetRest}s de descanso`;
-
-  activeTimer = setInterval(() => {
-    restSeconds++;
-    if (restSeconds <= targetRest) {
-      if (display) {
-        display.innerText = formatSecMin(targetRest - restSeconds);
-        display.className = "text-3xl font-mono font-black text-white tracking-widest my-1";
-      }
-      if (statusText) statusText.innerText = `Descansando...`;
-    } else {
-      const extra = restSeconds - targetRest;
-      if (display) {
-        display.innerText = `00:00 (+${formatSecMin(extra)})`;
-        display.className = "text-3xl font-mono font-black text-red-500 tracking-widest my-1 animate-pulse";
-      }
-      if (statusText) statusText.innerText = `Acréscimo de descanso!`;
-    }
-  }, 1000);
 }
 
 function renderHoje(view) {
@@ -248,21 +126,18 @@ function renderHoje(view) {
     .join("");
 
   const rows = workout.exercises
-    .map((ex, idx) => {
+    .map((ex) => {
       const last = lastLogFor(ex.nome);
       const metaSeries = ex.series ? `${ex.series}x${ex.reps}` : ex.reps;
       const metaLine = last
         ? `Última vez (${formatShortDate(last.date)}): ${last.series ? last.series + "x" + last.reps : last.reps}${last.carga ? " · " + last.carga : ""}`
         : `Sugerido: ${metaSeries}${ex.carga ? " · " + ex.carga : ""}${ex.descanso ? " · descanso " + ex.descanso : ""}`;
-      
-      const isCurrent = idx === currentExerciseIndex;
-
       return `
-      <div class="exercise-row ${isCurrent ? "border-emerald-500/50 bg-emerald-500/5" : ""}" data-ex-id="${ex.id}" data-index="${idx}">
+      <div class="exercise-row" data-ex-id="${ex.id}">
         <div class="exercise-name">${ex.nome}${ex.isCardio ? " 🏃" : ""}</div>
         <div class="exercise-meta">${metaLine}</div>
         <div class="log-grid">
-          <div><label>Séries</label><input type="number" inputmode="numeric" class="in-series" value="${last ? last.series : ex.series || 3}"></div>
+          <div><label>Séries</label><input type="number" inputmode="numeric" class="in-series" value="${last ? last.series : ex.series}"></div>
           <div><label>Reps</label><input type="text" inputmode="numeric" class="in-reps" value="${last ? last.reps : ex.reps}"></div>
           <div><label>Carga</label><input type="text" class="in-carga" value="${last ? last.carga : (ex.carga || "")}"></div>
         </div>
@@ -270,66 +145,20 @@ function renderHoje(view) {
     })
     .join("");
 
-  const currentEx = workout.exercises[currentExerciseIndex] || workout.exercises[0];
-  totalSets = parseInt(currentEx.series) || 3;
-  targetRest = parseInt(currentEx.descanso) || 60;
-
   view.innerHTML = `
     <div class="section-title">Hoje</div>
     <div class="section-sub">${workout.foco || ""}</div>
     <div class="today-pick">${pills}</div>
-
-    <!-- PAINEL DE CONTROLE DE TEMPO (V3) -->
-    <div class="card timer-dashboard mb-4 p-4 rounded-xl bg-stone-900 border border-stone-800">
-      <div class="flex justify-between items-center border-b border-stone-800 pb-3 mb-3">
-        <div>
-          <span class="text-xs text-stone-400 block font-bold uppercase">Tempo Geral</span>
-          <span id="general-timer-display" class="text-2xl font-mono font-bold text-amber-400">${formatSecMin(generalSeconds)}</span>
-        </div>
-        <button id="toggle-general-btn" class="btn secondary text-xs py-1 px-3">
-          ${generalInterval ? "Pausar" : "Iniciar"}
-        </button>
-      </div>
-
-      <div class="text-center py-2">
-        <div class="flex justify-center items-center gap-2 mb-1">
-          <span id="current-exercise-name" class="font-bold text-lg text-white">${currentEx.nome}</span>
-          <span id="current-set-badge" class="text-xs font-bold bg-amber-500/20 text-amber-400 border border-amber-500/40 px-2.5 py-1 rounded-full">
-            Série ${currentSetState} / ${totalSets}
-          </span>
-        </div>
-        <div id="rest-title-label" class="text-xs text-stone-400 font-semibold uppercase tracking-wider">Aguardando início</div>
-        <div id="rest-timer-display" class="text-3xl font-mono font-black text-white tracking-widest my-1">00:00</div>
-        <div id="rest-status-text" class="text-xs text-stone-400 mb-3">Clique em 'Iniciar Série' para começar</div>
-
-        <div class="grid grid-cols-2 gap-2 mt-3">
-          <button id="start-set-btn" class="btn bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 rounded-lg">
-            ▶ Iniciar Série
-          </button>
-          <button id="finish-set-btn" class="btn bg-amber-600 hover:bg-amber-500 text-white font-bold py-2 rounded-lg">
-            ✓ Terminei
-          </button>
-        </div>
-      </div>
-    </div>
-
     <div class="card">${rows}</div>
-    <button class="btn" id="save-session-btn" style="margin-top: 12px;">Salvar treino de hoje</button>
+    <button class="btn" id="save-session-btn">Salvar treino de hoje</button>
   `;
 
-  // Bind dos Eventos de Execução da V3
   view.querySelectorAll(".pill").forEach((p) =>
     p.addEventListener("click", () => {
       hojeSelectedLetter = p.dataset.letter;
-      currentExerciseIndex = 0;
-      currentSetState = 1;
       render();
     })
   );
-
-  document.getElementById("toggle-general-btn").addEventListener("click", toggleGeneralTimer);
-  document.getElementById("start-set-btn").addEventListener("click", startSet);
-  document.getElementById("finish-set-btn").addEventListener("click", () => finishSet("concluido"));
 
   document.getElementById("save-session-btn").addEventListener("click", () => {
     const log = [];
@@ -485,6 +314,7 @@ async function extractPdfText(file) {
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
+    // preserve line breaks by grouping items by their y position
     let lastY = null;
     let line = "";
     content.items.forEach((item) => {
@@ -503,6 +333,7 @@ async function extractPdfText(file) {
 
 function parseWorkoutText(text) {
   const rawLines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+
   const workouts = [];
   let current = null;
   let inNotes = false;
@@ -512,9 +343,12 @@ function parseWorkoutText(text) {
       inNotes = true;
       return;
     }
+    // ignora linhas decorativas feitas só de =, -, * ou #
     if (/^[=\-*#\s]+$/.test(rawLine)) return;
 
+    // normaliza: remove decoração tipo "#", "---", "===" ao redor do título
     const cleaned = rawLine.replace(/^[#\-=\s]+/, "").replace(/[\-=\s]+$/, "");
+
     const headerMatch = cleaned.match(/^TREINO\s+([A-Za-zÀ-ú0-9]+)\s*[:\-–—]?\s*(.*)$/i);
     if (headerMatch) {
       current = { id: uid(), letter: headerMatch[1].toUpperCase(), foco: headerMatch[2] || "", exercises: [] };
@@ -523,7 +357,7 @@ function parseWorkoutText(text) {
       return;
     }
 
-    if (inNotes) return;
+    if (inNotes) return; // ignora observações soltas após "OBSERVAÇÕES..."
 
     const numMatch = rawLine.match(/^\d+[\.\)]\s*(.+)$/);
     const bulletMatch = rawLine.match(/^[•\-*]\s*(.+)$/);
@@ -549,6 +383,7 @@ function parseWorkoutText(text) {
     let nome, series = "", reps = "", carga = "", descanso = "";
 
     if (content.includes("|")) {
+      // formato estrito: nome | Nx reps | carga | descanso
       const parts = content.split("|").map((p) => p.trim());
       nome = parts[0] || "Exercício";
       if (parts[1]) {
@@ -561,6 +396,7 @@ function parseWorkoutText(text) {
       nome = "Cardio";
       reps = content.trim();
     } else if (content.includes(":")) {
+      // formato solto: "Nome do exercício: 3x 10-12" ou "Duração: 60 a 90 minutos"
       const idx = content.indexOf(":");
       nome = content.slice(0, idx).trim();
       const rest = content.slice(idx + 1).trim();
@@ -614,6 +450,7 @@ function openReviewModal(parsedWorkouts) {
   document.body.appendChild(backdrop);
   backdrop.querySelector("#cancel-import").addEventListener("click", () => backdrop.remove());
   backdrop.querySelector("#confirm-import").addEventListener("click", () => {
+    // replace existing workouts with same letter, otherwise append
     parsedWorkouts.forEach((w) => {
       const idx = state.workouts.findIndex((existing) => existing.letter === w.letter);
       if (idx !== -1) state.workouts[idx] = w;
@@ -626,7 +463,7 @@ function openReviewModal(parsedWorkouts) {
   });
 }
 
-/* ============ PROGRESSO & CALENDÁRIO CORRIGIDO ============ */
+/* ============ PROGRESSO ============ */
 function parseCargaNumber(str) {
   if (!str) return null;
   const m = String(str).match(/[\d.,]+/);
@@ -663,26 +500,19 @@ function renderProgresso(view) {
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth();
-  
-  // Cálculo dinâmico correto de dias e offsets do mês
   const firstDay = new Date(year, month, 1);
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const startOffset = firstDay.getDay(); 
+  const startOffset = firstDay.getDay();
   const trainedDates = new Set(state.sessions.map((s) => s.date));
 
-  let calHeader = WEEKDAYS.map(w => `<div class="cal-day-header font-bold text-xs text-stone-500 text-center">${w}</div>`).join("");
   let calCells = "";
-  
-  for (let i = 0; i < startOffset; i++) {
-    calCells += `<div class="cal-day empty"></div>`;
-  }
-  
+  for (let i = 0; i < startOffset; i++) calCells += `<div class="cal-day empty"></div>`;
   for (let d = 1; d <= daysInMonth; d++) {
     const iso = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-    const isToday = iso === todayISO();
-    calCells += `<div class="cal-day ${trainedDates.has(iso) ? "trained" : ""} ${isToday ? "border border-amber-400 font-bold" : ""}">${d}</div>`;
+    calCells += `<div class="cal-day ${trainedDates.has(iso) ? "trained" : ""}">${d}</div>`;
   }
 
+  // per-exercise history
   const byExercise = {};
   state.sessions.forEach((s) => {
     s.log.forEach((l) => {
@@ -725,10 +555,7 @@ function renderProgresso(view) {
       <div class="stat-box"><div class="stat-num">${state.sessions.length}</div><div class="stat-label">total registrado</div></div>
     </div>
     <div class="section-sub" style="margin-bottom:8px; text-transform:capitalize;">${MONTHS[month]} ${year}</div>
-    <div class="calendar grid grid-cols-7 gap-1 text-center mb-6">
-      ${calHeader}
-      ${calCells}
-    </div>
+    <div class="calendar">${calCells}</div>
     <div class="section-title" style="font-size:18px;">Evolução de carga</div>
     ${progressHtml}
   `;

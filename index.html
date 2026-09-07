@@ -1,408 +1,49 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Meu Treino</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
-    <style>
-        body { font-family: 'Inter', sans-serif; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>Treino</title>
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Treino">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="theme-color" content="#1C1B1A">
+<link rel="stylesheet" href="style.css">
 </head>
-<body class="bg-black text-white min-h-screen pb-20 select-none">
+<body>
 
-    <!-- Header -->
-    <header class="py-4 text-center border-b border-zinc-900 sticky top-0 bg-black/90 backdrop-blur z-50">
-        <h1 class="text-xl font-black tracking-widest text-white uppercase">Meu Treino</h1>
-        <div class="h-0.5 w-12 bg-red-600 mx-auto mt-1 rounded-full"></div>
-    </header>
+<header class="topbar">
+  <span class="brand">TREINO</span>
+  <span class="topbar-date" id="topbar-date"></span>
+</header>
 
-    <main class="max-w-md mx-auto p-4 space-y-4">
+<main id="view"></main>
 
-        <!-- TAB: HOJE -->
-        <section id="tab-hoje" class="space-y-4">
-            
-            <!-- Cronômetro Geral -->
-            <div class="bg-zinc-950 border border-zinc-800/80 rounded-2xl p-4 shadow-xl">
-                <div class="flex justify-between items-center mb-2">
-                    <span class="text-xs font-bold text-zinc-500 uppercase tracking-wider">Sessão Ativa</span>
-                    <span id="general-timer" class="font-mono text-xl font-black text-white tracking-widest">00:00:00</span>
-                </div>
-                <div class="flex gap-2">
-                    <button id="btn-geral" onclick="toggleGeneralTimer()" class="flex-1 bg-white text-black font-bold py-2.5 rounded-xl text-sm transition active:scale-95">
-                        Iniciar Treino Geral
-                    </button>
-                    <button onclick="resetGeneralTimer()" class="bg-zinc-900 border border-zinc-800 text-zinc-400 font-bold px-4 py-2.5 rounded-xl text-sm transition active:scale-95">
-                        Zerar
-                    </button>
-                </div>
-            </div>
+<nav class="tabbar">
+  <button class="tab" data-tab="hoje">
+    <span class="tab-mark">●</span>
+    <span>Hoje</span>
+  </button>
+  <button class="tab" data-tab="treinos">
+    <span class="tab-mark">▤</span>
+    <span>Treinos</span>
+  </button>
+  <button class="tab" data-tab="progresso">
+    <span class="tab-mark">▲</span>
+    <span>Progresso</span>
+  </button>
+  <button class="tab" data-tab="avaliacao">
+    <span class="tab-mark">◆</span>
+    <span>Avaliação</span>
+  </button>
+</nav>
 
-            <!-- Foco Atual / Timer de Exercício -->
-            <div class="bg-zinc-950 border border-zinc-800/80 rounded-2xl p-4 shadow-xl space-y-4">
-                <div class="flex justify-between items-start">
-                    <div>
-                        <span class="text-xs font-bold text-zinc-500 uppercase tracking-wider">Foco Atual</span>
-                        <h2 id="current-exercise-name" class="text-lg font-black text-white">Supino Reto com Halteres</h2>
-                    </div>
-                    <span id="current-set-badge" class="text-xs font-bold bg-zinc-900 text-zinc-300 border border-zinc-800 px-2.5 py-1 rounded-full">
-                        Série 1 / 4
-                    </span>
-                </div>
+<input type="file" id="pdf-input" accept=".pdf,.txt,application/pdf,text/plain" style="display:none">
+<input type="file" id="assessment-pdf-input" accept="application/pdf" style="display:none">
 
-                <!-- Display do Timer do Exercício -->
-                <div class="bg-black/60 border border-zinc-900 rounded-xl p-4 text-center">
-                    <span id="rest-title-label" class="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Timer de Descanso</span>
-                    <div id="rest-timer-display" class="text-3xl font-mono font-black text-white tracking-widest my-1">
-                        00:00
-                    </div>
-                    <span id="rest-status-text" class="text-xs font-medium text-zinc-500">Aguardando início...</span>
-                </div>
-
-                <!-- Controles do Exercício -->
-                <div class="grid grid-cols-2 gap-2">
-                    <button id="btn-start-set" onclick="startSet()" class="col-span-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-white font-bold py-3 rounded-xl text-sm flex items-center justify-center gap-1.5 transition active:scale-95">
-                        <span>►</span> Iniciar Série
-                    </button>
-                    <button onclick="finishSet('completed')" class="col-span-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl text-sm flex items-center justify-center gap-1.5 transition active:scale-95">
-                        <span>✓</span> Terminei
-                    </button>
-                    <button onclick="finishSet('partial')" class="col-span-1 bg-amber-600/90 hover:bg-amber-500 text-white font-bold py-3 rounded-xl text-sm flex items-center justify-center gap-1.5 transition active:scale-95">
-                        <span>⚠️</span> Não terminei
-                    </button>
-                    <button onclick="finishSet('failure')" class="col-span-1 bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-xl text-sm flex items-center justify-center gap-1.5 transition active:scale-95">
-                        <span>🔥</span> Até a falha
-                    </button>
-                </div>
-            </div>
-
-            <!-- Lista de Exercícios -->
-            <div class="bg-zinc-950 border border-zinc-800/80 rounded-2xl p-4 shadow-xl">
-                <div class="flex justify-between items-center mb-3">
-                    <h3 class="text-sm font-bold text-white uppercase tracking-wider">Exercícios de Hoje</h3>
-                    <span class="text-xs text-zinc-500">5 exercícios</span>
-                </div>
-                <div id="exercise-list" class="space-y-2">
-                    <!-- Gerado via JS -->
-                </div>
-            </div>
-
-        </section>
-
-        <!-- TAB: PROGRESSO -->
-        <section id="tab-progresso" class="space-y-4 hidden">
-            <!-- Métricas -->
-            <div class="grid grid-cols-3 gap-2">
-                <div class="bg-zinc-950 border border-zinc-800/80 p-3 rounded-xl text-center">
-                    <span id="stat-streak" class="block text-lg font-black text-white">1</span>
-                    <span class="text-[10px] text-zinc-500 font-bold uppercase">dias seguidos</span>
-                </div>
-                <div class="bg-zinc-950 border border-zinc-800/80 p-3 rounded-xl text-center">
-                    <span id="stat-week-workouts" class="block text-lg font-black text-white">0</span>
-                    <span class="text-[10px] text-zinc-500 font-bold uppercase">treinos semana</span>
-                </div>
-                <div class="bg-zinc-950 border border-zinc-800/80 p-3 rounded-xl text-center">
-                    <span id="stat-total" class="block text-lg font-black text-white">0</span>
-                    <span class="text-[10px] text-zinc-500 font-bold uppercase">total reg.</span>
-                </div>
-            </div>
-
-            <!-- Calendário Dinâmico -->
-            <div class="bg-zinc-950 border border-zinc-800/80 rounded-2xl p-4 shadow-xl">
-                <div class="flex justify-between items-center mb-4">
-                    <h3 class="text-sm font-black text-white uppercase tracking-wider">SETEMBRO 2026</h3>
-                    <span class="text-[10px] text-zinc-500 uppercase font-bold tracking-wider">Frequência mensal</span>
-                </div>
-
-                <!-- Dias da Semana -->
-                <div class="grid grid-cols-7 gap-1 text-center mb-2">
-                    <span class="text-[10px] font-bold text-zinc-600 uppercase">Dom</span>
-                    <span class="text-[10px] font-bold text-zinc-600 uppercase">Seg</span>
-                    <span class="text-[10px] font-bold text-zinc-600 uppercase">Ter</span>
-                    <span class="text-[10px] font-bold text-zinc-600 uppercase">Qua</span>
-                    <span class="text-[10px] font-bold text-zinc-600 uppercase">Qui</span>
-                    <span class="text-[10px] font-bold text-zinc-600 uppercase">Sex</span>
-                    <span class="text-[10px] font-bold text-zinc-600 uppercase">Sáb</span>
-                </div>
-
-                <!-- Grid dos Dias -->
-                <div id="calendar-grid" class="grid grid-cols-7 gap-1.5 text-center">
-                    <!-- Gerado via JS -->
-                </div>
-            </div>
-        </section>
-
-    </main>
-
-    <!-- Navegação Inferior -->
-    <nav class="fixed bottom-0 left-0 right-0 bg-black/95 border-t border-zinc-900 px-6 py-2 flex justify-around items-center z-50 backdrop-blur">
-        <button onclick="switchTab('hoje')" id="nav-hoje" class="flex flex-col items-center gap-1 text-white">
-            <span class="w-1.5 h-1.5 rounded-full bg-white" id="dot-hoje"></span>
-            <span class="text-[10px] font-bold tracking-wider uppercase">Hoje</span>
-        </button>
-        <button onclick="switchTab('progresso')" id="nav-progresso" class="flex flex-col items-center gap-1 text-zinc-600">
-            <span class="w-1.5 h-1.5 rounded-full bg-transparent" id="dot-progresso"></span>
-            <span class="text-[10px] font-bold tracking-wider uppercase">Progresso</span>
-        </button>
-    </nav>
-
-    <!-- LÓGICA JAVASCRIPT -->
-    <script>
-        // Banco de dados local
-        let db = {
-            workouts: [
-                { id: 1, name: "Supino Reto com Halteres", sets: 4, targetRest: 60 },
-                { id: 2, name: "Inclinado com Halteres", sets: 4, targetRest: 60 },
-                { id: 3, name: "Crossover no Cabo", sets: 3, targetRest: 45 },
-                { id: 4, name: "Tríceps Pulley", sets: 4, targetRest: 45 },
-                { id: 5, name: "Tríceps Testa", sets: 3, targetRest: 45 }
-            ],
-            workoutLogs: []
-        };
-
-        // Carregar do localStorage se existir
-        if (localStorage.getItem('meu_treino_db')) {
-            try {
-                db = JSON.parse(localStorage.getItem('meu_treino_db'));
-            } catch(e) {}
-        }
-
-        function saveData() {
-            localStorage.setItem('meu_treino_db', JSON.stringify(db));
-        }
-
-        // Navegação por Abas
-        function switchTab(tab) {
-            document.getElementById('tab-hoje').classList.toggle('hidden', tab !== 'hoje');
-            document.getElementById('tab-progresso').classList.toggle('hidden', tab !== 'progresso');
-
-            document.getElementById('nav-hoje').className = tab === 'hoje' ? 'flex flex-col items-center gap-1 text-white' : 'flex flex-col items-center gap-1 text-zinc-600';
-            document.getElementById('nav-progresso').className = tab === 'progresso' ? 'flex flex-col items-center gap-1 text-white' : 'flex flex-col items-center gap-1 text-zinc-600';
-
-            document.getElementById('dot-hoje').className = tab === 'hoje' ? 'w-1.5 h-1.5 rounded-full bg-white' : 'w-1.5 h-1.5 rounded-full bg-transparent';
-            document.getElementById('dot-progresso').className = tab === 'progresso' ? 'w-1.5 h-1.5 rounded-full bg-white' : 'w-1.5 h-1.5 rounded-full bg-transparent';
-
-            if(tab === 'progresso') {
-                renderCalendar();
-            }
-        }
-
-        // Cronômetro Geral
-        let generalSeconds = 0;
-        let generalInterval = null;
-
-        function toggleGeneralTimer() {
-            const btn = document.getElementById('btn-geral');
-            if(!generalInterval) {
-                generalInterval = setInterval(() => {
-                    generalSeconds++;
-                    document.getElementById('general-timer').innerText = formatTime(generalSeconds);
-                }, 1000);
-                btn.innerText = "Pausar Treino";
-                btn.classList.replace('bg-white', 'bg-zinc-800');
-                btn.classList.replace('text-black', 'text-white');
-            } else {
-                clearInterval(generalInterval);
-                generalInterval = null;
-                btn.innerText = "Continuar Treino";
-                btn.classList.replace('bg-zinc-800', 'bg-white');
-                btn.classList.replace('text-white', 'text-black');
-            }
-        }
-
-        function resetGeneralTimer() {
-            clearInterval(generalInterval);
-            generalInterval = null;
-            generalSeconds = 0;
-            document.getElementById('general-timer').innerText = "00:00:00";
-            const btn = document.getElementById('btn-geral');
-            btn.innerText = "Iniciar Treino Geral";
-            btn.classList.replace('bg-zinc-800', 'bg-white');
-            btn.classList.replace('text-white', 'text-black');
-        }
-
-        function formatTime(totalSec) {
-            const hrs = Math.floor(totalSec / 3600).toString().padStart(2, '0');
-            const mins = Math.floor((totalSec % 3600) / 60).toString().padStart(2, '0');
-            const secs = (totalSec % 60).toString().padStart(2, '0');
-            return `${hrs}:${mins}:${secs}`;
-        }
-
-        function formatSecMin(totalSec) {
-            const mins = Math.floor(totalSec / 60).toString().padStart(2, '0');
-            const secs = (totalSec % 60).toString().padStart(2, '0');
-            return `${mins}:${secs}`;
-        }
-
-        // Cronômetro do Exercício
-        let activeTimer = null;
-        let setSeconds = 0;
-        let restSeconds = 0;
-        let targetRest = 60;
-        let isExecutingSet = false;
-        let currentSetState = 1;
-        let totalSets = 4;
-
-        function startSet() {
-            // Dispara treino geral se estiver desligado
-            if (!generalInterval) {
-                toggleGeneralTimer();
-            }
-
-            // Impede restart se já concluiu todas as séries
-            if (currentSetState > totalSets) {
-                return;
-            }
-
-            clearInterval(activeTimer);
-            setSeconds = 0;
-            isExecutingSet = true;
-
-            const display = document.getElementById('rest-timer-display');
-            const statusText = document.getElementById('rest-status-text');
-            const label = document.getElementById('rest-title-label');
-
-            if(label) label.innerText = `Série ${currentSetState} em Execução`;
-            display.className = "text-3xl font-mono font-black text-emerald-400 tracking-widest my-1 animate-pulse";
-            statusText.innerText = "Foco total na execução!";
-
-            activeTimer = setInterval(() => {
-                setSeconds++;
-                display.innerText = formatSecMin(setSeconds);
-            }, 1000);
-        }
-
-        function finishSet(type) {
-            // TRAVA: Só executa se estivesse gravando uma série ativa
-            if (!isExecutingSet) {
-                return; 
-            }
-
-            // Dispara treino geral se estiver desligado
-            if (!generalInterval) {
-                toggleGeneralTimer();
-            }
-
-            clearInterval(activeTimer);
-            restSeconds = 0;
-            isExecutingSet = false;
-
-            // Log
-            db.workoutLogs.push({
-                date: new Date().toISOString(),
-                type: type,
-                exercise: document.getElementById('current-exercise-name').innerText,
-                set: currentSetState,
-                duration: setSeconds
-            });
-            saveData();
-
-            const display = document.getElementById('rest-timer-display');
-            const statusText = document.getElementById('rest-status-text');
-            const label = document.getElementById('rest-title-label');
-            const badge = document.getElementById('current-set-badge');
-
-            // VERIFICAÇÃO DE FIM DE EXERCÍCIO
-            if (currentSetState >= totalSets) {
-                if(label) label.innerText = "Status do Exercício";
-                display.innerText = "CONCLUÍDO";
-                display.className = "text-2xl font-mono font-black text-emerald-500 tracking-widest my-1 flex items-center justify-center gap-2";
-                statusText.innerText = "Excelente trabalho! Vá para o próximo exercício.";
-                
-                if(badge) {
-                    badge.innerText = "Exercício concluído ✅";
-                    badge.className = "text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 px-2.5 py-1 rounded-full";
-                }
-                return;
-            }
-
-            // Próxima série
-            currentSetState++;
-            if(badge) badge.innerText = `Série ${currentSetState} / ${totalSets}`;
-
-            if(label) label.innerText = "Timer de Descanso";
-            statusText.innerText = `Meta: ${targetRest}s de descanso`;
-
-            activeTimer = setInterval(() => {
-                restSeconds++;
-                if(restSeconds <= targetRest) {
-                    display.innerText = formatSecMin(targetRest - restSeconds);
-                    display.className = "text-3xl font-mono font-black text-white tracking-widest my-1";
-                    statusText.innerText = `Descansando...`;
-                } else {
-                    const extra = restSeconds - targetRest;
-                    display.innerText = `00:00 (+${formatSecMin(extra)})`;
-                    display.className = "text-3xl font-mono font-black text-red-500 tracking-widest my-1 animate-pulse";
-                    statusText.innerText = `Acréscimo de descanso!`;
-                }
-            }, 1000);
-        }
-
-        // Render da Lista de Exercícios
-        function renderExerciseList() {
-            const container = document.getElementById('exercise-list');
-            container.innerHTML = '';
-
-            db.workouts.forEach((ex, idx) => {
-                const item = document.createElement('div');
-                item.className = `p-3 rounded-xl border flex justify-between items-center cursor-pointer transition ${idx === 0 ? 'bg-zinc-900 border-zinc-700' : 'bg-black/40 border-zinc-900 text-zinc-500'}`;
-                item.innerHTML = `
-                    <div class="flex items-center gap-3">
-                        <span class="text-xs font-black text-zinc-600">${(idx + 1).toString().padStart(2, '0')}</span>
-                        <span class="text-sm font-bold">${ex.name}</span>
-                    </div>
-                    <span class="text-xs font-semibold">${ex.sets}x</span>
-                `;
-                container.appendChild(item);
-            });
-        }
-
-        // Calendário Dinâmico Realista
-        function renderCalendar() {
-            const grid = document.getElementById('calendar-grid');
-            grid.innerHTML = '';
-
-            const now = new Date();
-            const year = now.getFullYear();
-            const month = now.getMonth();
-            const today = now.getDate();
-
-            const monthNames = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
-            const monthYearHeader = document.querySelector('#tab-progresso h3');
-            if (monthYearHeader) {
-                monthYearHeader.innerText = `${monthNames[month]} ${year}`;
-            }
-
-            const firstDayIndex = new Date(year, month, 1).getDay();
-            const totalDays = new Date(year, month + 1, 0).getDate();
-
-            // Espaços vazios do início do mês
-            for (let x = 0; x < firstDayIndex; x++) {
-                const emptyEl = document.createElement('div');
-                emptyEl.className = "h-8";
-                grid.appendChild(emptyEl);
-            }
-
-            // Dias Reais
-            for (let day = 1; day <= totalDays; day++) {
-                const dayEl = document.createElement('div');
-                dayEl.className = "h-8 flex items-center justify-center rounded-lg bg-zinc-900 text-white text-xs font-bold border border-zinc-800";
-                dayEl.innerText = day;
-
-                if (day === today) {
-                    dayEl.classList.add('border-white', 'bg-zinc-800', 'text-white', 'ring-1', 'ring-white');
-                }
-
-                grid.appendChild(dayEl);
-            }
-
-            document.getElementById('stat-week-workouts').innerText = db.workoutLogs.length;
-            document.getElementById('stat-total').innerText = db.workoutLogs.length;
-        }
-
-        // Inicialização
-        renderExerciseList();
-    </script>
+<script src="vendor/pdf.min.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
