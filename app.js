@@ -111,10 +111,6 @@ function suggestTodayLetter() {
 }
 
 function renderHoje(view) {
-  if (liveSession) {
-    renderLiveSession(view);
-    return;
-  }
   if (state.workouts.length === 0) {
     view.innerHTML = `
       <div class="empty">
@@ -124,25 +120,33 @@ function renderHoje(view) {
     return;
   }
 
-  if (!hojeSelectedLetter || !state.workouts.find((w) => w.letter === hojeSelectedLetter)) {
+  // Se já existe um treino com cronômetro rodando, prende a tela nele (evita trocar de treino no meio).
+  if (liveSession) {
+    hojeSelectedLetter = liveSession.workoutLetter;
+  } else if (!hojeSelectedLetter || !state.workouts.find((w) => w.letter === hojeSelectedLetter)) {
     hojeSelectedLetter = suggestTodayLetter();
   }
   const workout = state.workouts.find((w) => w.letter === hojeSelectedLetter);
 
-  const pills = state.workouts
-    .map((w) => `<button class="pill ${w.letter === hojeSelectedLetter ? "active" : ""}" data-letter="${w.letter}">Treino ${w.letter}</button>`)
-    .join("");
+  const pillsHtml = liveSession
+    ? ""
+    : `<div class="today-pick">${state.workouts
+        .map((w) => `<button class="pill ${w.letter === hojeSelectedLetter ? "active" : ""}" data-letter="${w.letter}">Treino ${w.letter}</button>`)
+        .join("")}</div>`;
+
+  const dashboardHtml = liveSession ? renderTimerDashboardHtml() : `<button class="btn" id="start-live-btn" style="margin-bottom:14px;">▶ Iniciar treino com cronômetro</button>`;
 
   const rows = workout.exercises
-    .map((ex) => {
+    .map((ex, idx) => {
       const last = lastLogFor(ex.nome);
       const metaSeries = ex.series ? `${ex.series}x${ex.reps}` : ex.reps;
       const metaLine = last
         ? `Última vez (${formatShortDate(last.date)}): ${last.series ? last.series + "x" + last.reps : last.reps}${last.carga ? " · " + last.carga : ""}`
         : `Sugerido: ${metaSeries}${ex.carga ? " · " + ex.carga : ""}${ex.descanso ? " · descanso " + ex.descanso : ""}`;
+      const isCurrent = liveSession && idx === liveSession.exIndex && liveSession.phase !== "finished";
       return `
-      <div class="exercise-row" data-ex-id="${ex.id}">
-        <div class="exercise-name">${ex.nome}${ex.isCardio ? " 🏃" : ""}</div>
+      <div class="exercise-row ${isCurrent ? "current" : ""}" data-ex-id="${ex.id}">
+        <div class="exercise-name">${isCurrent ? "▶ " : ""}${ex.nome}${ex.isCardio ? " 🏃" : ""}</div>
         <div class="exercise-meta">${metaLine}</div>
         <div class="log-grid">
           <div><label>Séries</label><input type="number" inputmode="numeric" class="in-series" value="${last ? last.series : ex.series}"></div>
@@ -156,15 +160,17 @@ function renderHoje(view) {
   view.innerHTML = `
     <div class="section-title">Treino de hoje</div>
     <div class="section-sub">${workout.foco || ""}</div>
-    <div class="today-pick">${pills}</div>
-    <button class="btn" id="start-live-btn" style="margin-bottom:14px;">▶ Iniciar treino com cronômetro</button>
+    ${pillsHtml}
+    ${dashboardHtml}
     <div class="card">${rows}</div>
-    <button class="btn secondary" id="save-session-btn">Salvar treino de hoje (sem cronômetro)</button>
+    ${liveSession ? "" : `<button class="btn secondary" id="save-session-btn">Salvar treino de hoje (sem cronômetro)</button>`}
+    <div style="height:20px"></div>
   `;
 
-  document.getElementById("start-live-btn").addEventListener("click", () => {
-    startLiveSession(workout);
-  });
+  attachLiveDashboardEvents(view);
+
+  const startBtn = document.getElementById("start-live-btn");
+  if (startBtn) startBtn.addEventListener("click", () => startLiveSession(workout));
 
   view.querySelectorAll(".pill").forEach((p) =>
     p.addEventListener("click", () => {
@@ -173,30 +179,32 @@ function renderHoje(view) {
     })
   );
 
-  document.getElementById("save-session-btn").addEventListener("click", () => {
-    const log = [];
-    view.querySelectorAll(".exercise-row").forEach((row) => {
-      const exId = row.dataset.exId;
-      const ex = workout.exercises.find((e) => e.id === exId);
-      log.push({
-        exId,
-        nome: ex.nome,
-        series: row.querySelector(".in-series").value,
-        reps: row.querySelector(".in-reps").value,
-        carga: row.querySelector(".in-carga").value,
+  const saveBtn = document.getElementById("save-session-btn");
+  if (saveBtn)
+    saveBtn.addEventListener("click", () => {
+      const log = [];
+      view.querySelectorAll(".exercise-row").forEach((row) => {
+        const exId = row.dataset.exId;
+        const ex = workout.exercises.find((e) => e.id === exId);
+        log.push({
+          exId,
+          nome: ex.nome,
+          series: row.querySelector(".in-series").value,
+          reps: row.querySelector(".in-reps").value,
+          carga: row.querySelector(".in-carga").value,
+        });
       });
+      state.sessions.push({
+        id: uid(),
+        date: todayISO(),
+        workoutId: workout.id,
+        workoutLetter: workout.letter,
+        log,
+      });
+      saveState();
+      toast("Treino de hoje salvo ✓");
+      render();
     });
-    state.sessions.push({
-      id: uid(),
-      date: todayISO(),
-      workoutId: workout.id,
-      workoutLetter: workout.letter,
-      log,
-    });
-    saveState();
-    toast("Treino de hoje salvo ✓");
-    render();
-  });
 }
 
 /* ============ CRONÔMETRO / SESSÃO GUIADA ============ */
@@ -229,19 +237,20 @@ function startLiveSession(workout) {
   liveSession = {
     workoutId: workout.id,
     workoutLetter: workout.letter,
-    startTime: Date.now(),
     exIndex: 0,
     setIndex: 1,
     phase: "idle", // idle | set-running | resting | finished
     setStartTime: null,
     restStartTime: null,
+    // tempo geral com play/pause independente
+    generalRunning: false,
+    generalElapsedSec: 0,
+    generalTickStart: null,
     exercises,
   };
   if (liveTickInterval) clearInterval(liveTickInterval);
   liveTickInterval = setInterval(() => {
-    if (liveSession && (liveSession.phase === "set-running" || liveSession.phase === "resting") && currentTab === "hoje") {
-      render();
-    }
+    if (liveSession && currentTab === "hoje") liveTick();
   }, 1000);
   render();
 }
@@ -250,7 +259,28 @@ function currentLiveExercise() {
   return liveSession ? liveSession.exercises[liveSession.exIndex] : null;
 }
 
+function generalElapsedNow() {
+  const s = liveSession;
+  return s.generalElapsedSec + (s.generalRunning ? (Date.now() - s.generalTickStart) / 1000 : 0);
+}
+
+function toggleGeneralTimer() {
+  const s = liveSession;
+  if (s.generalRunning) {
+    s.generalElapsedSec += (Date.now() - s.generalTickStart) / 1000;
+    s.generalRunning = false;
+  } else {
+    s.generalTickStart = Date.now();
+    s.generalRunning = true;
+  }
+  render();
+}
+
 function liveStartSet() {
+  if (!liveSession.generalRunning) {
+    liveSession.generalTickStart = Date.now();
+    liveSession.generalRunning = true;
+  }
   liveSession.phase = "set-running";
   liveSession.setStartTime = Date.now();
   render();
@@ -336,7 +366,6 @@ function liveFinalizeSession() {
       carga: ex.carga,
     });
   });
-  const workout = state.workouts.find((w) => w.id === liveSession.workoutId);
   state.sessions.push({
     id: uid(),
     date: todayISO(),
@@ -348,8 +377,7 @@ function liveFinalizeSession() {
     id: uid(),
     date: todayISO(),
     workoutLetter: liveSession.workoutLetter,
-    startTime: liveSession.startTime,
-    endTime: Date.now(),
+    totalElapsedSec: Math.round(generalElapsedNow()),
     exercises: liveSession.exercises.map((ex) => ({
       nome: ex.nome,
       plannedSeries: ex.plannedSeries,
@@ -367,10 +395,10 @@ function liveFinalizeSession() {
   render();
 }
 
-function renderLiveSession(view) {
+function renderTimerDashboardHtml() {
   const s = liveSession;
   const ex = currentLiveExercise();
-  const totalElapsed = Math.round((Date.now() - s.startTime) / 1000);
+  const totalElapsed = Math.round(generalElapsedNow());
 
   const dots = ex
     ? Array.from({ length: ex.plannedSeries }, (_, i) => (i < ex.sets.length ? "●" : i + 1 === s.setIndex ? "◐" : "○")).join(" ")
@@ -379,32 +407,26 @@ function renderLiveSession(view) {
   let phaseBlock = "";
   if (s.phase === "finished" || !ex) {
     phaseBlock = `
-      <div class="card" style="text-align:center;">
-        <div style="font-size:17px; font-weight:700; margin-bottom:6px;">Treino concluído 🎉</div>
-        <div class="section-sub" style="margin-bottom:0;">Toque em "Finalizar e salvar" para registrar tudo.</div>
+      <div style="text-align:center; padding:8px 0;">
+        <div style="font-size:16px; font-weight:700; margin-bottom:4px;">Treino concluído 🎉</div>
+        <div class="section-sub" style="margin-bottom:0;">Toque em "Finalizar e salvar" abaixo.</div>
       </div>`;
   } else if (s.phase === "idle") {
     phaseBlock = `
-      <div class="card">
-        <div class="exercise-name">${ex.nome}${ex.isCardio ? " 🏃" : ""}</div>
-        <div class="exercise-meta">Série ${s.setIndex} de ${ex.plannedSeries} · meta: ${ex.plannedReps || "—"} reps${ex.plannedDescansoSec ? " · descanso " + formatSecondsToClock(ex.plannedDescansoSec) : ""}</div>
-        <div style="font-size:18px; letter-spacing:3px; margin:10px 0;">${dots}</div>
-        <label>Carga (kg)</label>
-        <input type="text" id="live-carga" value="${ex.carga || ""}">
-        <button class="btn" id="live-start-set">▶ Iniciar série</button>
-      </div>`;
+      <div class="exercise-meta" style="margin-bottom:8px;">Série ${s.setIndex} de ${ex.plannedSeries} · meta: ${ex.plannedReps || "—"} reps${ex.plannedDescansoSec ? " · descanso " + formatSecondsToClock(ex.plannedDescansoSec) : ""}</div>
+      <div style="font-size:18px; letter-spacing:3px; margin-bottom:10px;">${dots}</div>
+      <label>Carga (kg)</label>
+      <input type="text" id="live-carga" value="${ex.carga || ""}">
+      <button class="btn" id="live-start-set">▶ Iniciar série</button>`;
   } else if (s.phase === "set-running") {
     const setElapsed = Math.round((Date.now() - s.setStartTime) / 1000);
     phaseBlock = `
-      <div class="card">
-        <div class="exercise-name">${ex.nome}</div>
-        <div class="exercise-meta">Série ${s.setIndex} de ${ex.plannedSeries} · meta: ${ex.plannedReps || "—"} reps · carga ${ex.carga || "—"}</div>
-        <div class="live-timer-big">${formatSecondsToClock(setElapsed)}</div>
-        <div class="live-btn-row">
-          <button class="btn" id="live-finish-ok">Terminei a série</button>
-          <button class="btn secondary" id="live-finish-early">Não terminei</button>
-          <button class="btn secondary" id="live-finish-failure">Fui até a falha</button>
-        </div>
+      <div class="exercise-meta" style="margin-bottom:4px;">Série ${s.setIndex} de ${ex.plannedSeries} · meta: ${ex.plannedReps || "—"} reps · carga ${ex.carga || "—"}</div>
+      <div class="live-timer-big" id="live-tick-display">${formatSecondsToClock(setElapsed)}</div>
+      <div class="live-btn-row">
+        <button class="btn" id="live-finish-ok">Terminei a série</button>
+        <button class="btn secondary" id="live-finish-early">Não terminei</button>
+        <button class="btn secondary" id="live-finish-failure">Fui até a falha</button>
       </div>`;
   } else if (s.phase === "resting") {
     const restElapsed = (Date.now() - s.restStartTime) / 1000;
@@ -414,25 +436,34 @@ function renderLiveSession(view) {
       ? `00:00 <span class="overtime">+${formatSecondsToClock(-remaining)}</span>`
       : formatSecondsToClock(remaining);
     phaseBlock = `
-      <div class="card">
-        <div class="exercise-name">Descanso</div>
-        <div class="exercise-meta">Próxima: série ${s.setIndex + 1 > ex.plannedSeries ? "1 (próximo exercício)" : s.setIndex + 1} de ${ex.plannedSeries}</div>
-        <div class="live-timer-big ${isOvertime ? "overtime" : ""}">${timerHtml}</div>
-        <button class="btn" id="live-end-rest">Próxima série</button>
-      </div>`;
+      <div class="exercise-meta" style="margin-bottom:4px;">Descanso · próxima: série ${s.setIndex + 1 > ex.plannedSeries ? "1 (próximo exercício)" : s.setIndex + 1} de ${ex.plannedSeries}</div>
+      <div class="live-timer-big ${isOvertime ? "overtime" : ""}" id="live-tick-display">${timerHtml}</div>
+      <button class="btn" id="live-end-rest">Próxima série</button>`;
   }
 
-  view.innerHTML = `
-    <div class="section-title">Treino de hoje</div>
-    <div class="section-sub">Treino ${s.workoutLetter} em andamento · ${formatSecondsToClock(totalElapsed)}</div>
-    ${phaseBlock}
-    <button class="btn" id="live-finalize" style="margin-top:6px;">Finalizar e salvar</button>
-    <div style="height:8px"></div>
-    <button class="btn secondary" id="live-cancel">Cancelar treino</button>
-    <div style="height:70px"></div>
-  `;
+  return `
+    <div class="card timer-dashboard">
+      <div class="timer-dashboard-head">
+        <div>
+          <div class="label" style="margin-bottom:2px;">Tempo geral</div>
+          <div class="general-timer" id="live-overall-timer">${formatSecondsToClock(totalElapsed)}</div>
+        </div>
+        <button class="btn secondary small" id="toggle-general-btn">${s.generalRunning ? "Pausar" : "Iniciar"}</button>
+      </div>
+      <div class="exercise-name" style="margin-top:10px;">${ex ? ex.nome + (ex.isCardio ? " 🏃" : "") : "Treino concluído"}</div>
+      ${phaseBlock}
+      <div class="live-btn-row" style="margin-top:14px;">
+        <button class="btn secondary small" id="live-finalize">Finalizar e salvar</button>
+        <button class="btn danger small" id="live-cancel">Cancelar treino</button>
+      </div>
+    </div>`;
+}
 
+function attachLiveDashboardEvents(view) {
+  if (!liveSession) return;
+  const ex = currentLiveExercise();
   const byId = (id) => view.querySelector("#" + id);
+  if (byId("toggle-general-btn")) byId("toggle-general-btn").addEventListener("click", toggleGeneralTimer);
   if (byId("live-start-set")) byId("live-start-set").addEventListener("click", liveStartSet);
   if (byId("live-carga"))
     byId("live-carga").addEventListener("change", (e) => {
@@ -442,8 +473,33 @@ function renderLiveSession(view) {
   if (byId("live-finish-early")) byId("live-finish-early").addEventListener("click", () => liveFinishSet("failed_early"));
   if (byId("live-finish-failure")) byId("live-finish-failure").addEventListener("click", () => liveFinishSet("to_failure"));
   if (byId("live-end-rest")) byId("live-end-rest").addEventListener("click", liveEndRest);
-  byId("live-finalize").addEventListener("click", liveFinalizeSession);
-  byId("live-cancel").addEventListener("click", liveCancelSession);
+  if (byId("live-finalize")) byId("live-finalize").addEventListener("click", liveFinalizeSession);
+  if (byId("live-cancel")) byId("live-cancel").addEventListener("click", liveCancelSession);
+}
+
+// Atualiza só o texto dos timers a cada segundo, sem re-renderizar a tela
+// (evita piscar e perder foco de campos — ideia aproveitada da versão do Gemini).
+function liveTick() {
+  if (!liveSession) return;
+  const s = liveSession;
+  const ex = currentLiveExercise();
+  const overallEl = document.getElementById("live-overall-timer");
+  if (overallEl && s.generalRunning) overallEl.textContent = formatSecondsToClock(Math.round(generalElapsedNow()));
+
+  const tickEl = document.getElementById("live-tick-display");
+  if (!tickEl || !ex) return;
+
+  if (s.phase === "set-running") {
+    tickEl.textContent = formatSecondsToClock(Math.round((Date.now() - s.setStartTime) / 1000));
+  } else if (s.phase === "resting") {
+    const restElapsed = (Date.now() - s.restStartTime) / 1000;
+    const remaining = ex.plannedDescansoSec - restElapsed;
+    const isOvertime = remaining < 0;
+    tickEl.classList.toggle("overtime", isOvertime);
+    tickEl.innerHTML = isOvertime
+      ? `00:00 <span class="overtime">+${formatSecondsToClock(-remaining)}</span>`
+      : formatSecondsToClock(remaining);
+  }
 }
 
 /* ============ TREINOS ============ */
@@ -1407,6 +1463,14 @@ render();
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("service-worker.js").catch(() => {});
+    navigator.serviceWorker.register("service-worker.js").then((reg) => {
+      reg.update();
+    }).catch(() => {});
+  });
+  let reloadedOnce = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (reloadedOnce) return;
+    reloadedOnce = true;
+    window.location.reload();
   });
 }

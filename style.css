@@ -489,13 +489,31 @@ label{
   z-index:20;
 }
 
-/* ---- cronômetro / sessão guiada ---- */
+/* ---- cronômetro / sessão guiada (painel embutido) ---- */
+.timer-dashboard{border-color:var(--moss);}
+.timer-dashboard-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+.general-timer{
+  font-size:22px;
+  font-weight:800;
+  font-variant-numeric:tabular-nums;
+  color:var(--chalk);
+}
+.exercise-row.current{
+  background:rgba(63,143,115,0.12);
+  border-radius:8px;
+  margin:0 -8px;
+  padding:14px 8px;
+}
 .live-timer-big{
-  font-size:52px;
+  font-size:44px;
   font-weight:800;
   font-variant-numeric:tabular-nums;
   text-align:center;
-  margin:14px 0;
+  margin:10px 0;
   letter-spacing:0.02em;
   color:var(--chalk);
 }
