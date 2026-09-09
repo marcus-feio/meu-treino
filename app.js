@@ -36,10 +36,11 @@ function loadState() {
       if (!parsed.runs) parsed.runs = [];
       if (!parsed.runPlans) parsed.runPlans = [];
       if (!parsed.trainingLogs) parsed.trainingLogs = [];
+      if (parsed.activeWorkoutState === undefined) parsed.activeWorkoutState = null;
       return parsed;
     }
   } catch (e) {}
-  return { workouts: [], sessions: [], assessments: [], runs: [], runPlans: [], trainingLogs: [] };
+  return { workouts: [], sessions: [], assessments: [], runs: [], runPlans: [], trainingLogs: [], activeWorkoutState: null };
 }
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -143,17 +144,30 @@ function renderHoje(view) {
       const metaLine = last
         ? `Última vez (${formatShortDate(last.date)}): ${last.series ? last.series + "x" + last.reps : last.reps}${last.carga ? " · " + last.carga : ""}`
         : `Sugerido: ${metaSeries}${ex.carga ? " · " + ex.carga : ""}${ex.descanso ? " · descanso " + ex.descanso : ""}`;
-      const isCurrent = liveSession && idx === liveSession.exIndex && liveSession.phase !== "finished";
-      const isDone = liveSession && idx < liveSession.exIndex;
+      const status = liveSession ? liveStatusForFlatIndex(idx) : null; // 'current' | 'done' | null
+      const partner = ex.pairWithId ? workout.exercises.find((e) => e.id === ex.pairWithId) : null;
+
+      const pairSelectHtml = liveSession
+        ? ""
+        : `<label style="margin-top:6px;">Conjugado com (bi-set)</label>
+           <select class="pair-select" data-ex-id="${ex.id}">
+             <option value="">Nenhum</option>
+             ${workout.exercises
+               .filter((e) => e.id !== ex.id)
+               .map((e) => `<option value="${e.id}" ${ex.pairWithId === e.id ? "selected" : ""}>${e.nome}</option>`)
+               .join("")}
+           </select>`;
+
       return `
-      <div class="exercise-row ${isCurrent ? "current" : ""}" data-ex-id="${ex.id}">
-        <div class="exercise-name">${isDone ? "✅ " : isCurrent ? "▶ " : ""}${ex.nome}${ex.isCardio ? " 🏃" : ""}</div>
+      <div class="exercise-row ${status === "current" ? "current" : ""} ${liveSession ? "clickable" : ""}" data-ex-id="${ex.id}" data-idx="${idx}">
+        <div class="exercise-name">${status === "done" ? "✅ " : status === "current" ? "▶ " : ""}${ex.nome}${ex.isCardio ? " 🏃" : ""}${partner && !liveSession ? ` <span class="pair-badge">🔗 ${partner.nome}</span>` : ""}</div>
         <div class="exercise-meta">${metaLine}</div>
         <div class="log-grid">
           <div><label>Séries</label><input type="number" inputmode="numeric" class="in-series" value="${last ? last.series : ex.series}"></div>
           <div><label>Reps</label><input type="text" inputmode="numeric" class="in-reps" value="${last ? last.reps : ex.reps}"></div>
           <div><label>Carga</label><input type="text" class="in-carga" value="${last ? last.carga : (ex.carga || "")}"></div>
         </div>
+        ${pairSelectHtml}
       </div>`;
     })
     .join("");
@@ -176,6 +190,38 @@ function renderHoje(view) {
   view.querySelectorAll(".pill").forEach((p) =>
     p.addEventListener("click", () => {
       hojeSelectedLetter = p.dataset.letter;
+      render();
+    })
+  );
+
+  // Navegação livre: clicar em qualquer card de exercício (fora dos campos) foca nele no painel.
+  if (liveSession) {
+    view.querySelectorAll(".exercise-row.clickable").forEach((row) =>
+      row.addEventListener("click", (e) => {
+        if (e.target.closest("input") || e.target.closest("select")) return;
+        liveSwitchToFlatIndex(parseInt(row.dataset.idx, 10));
+      })
+    );
+  }
+
+  // Seletor de conjugação (bi-set) — vincula dois exercícios de forma recíproca.
+  view.querySelectorAll(".pair-select").forEach((sel) =>
+    sel.addEventListener("change", (e) => {
+      const exId = sel.dataset.exId;
+      const newPartnerId = e.target.value || null;
+      const ex = workout.exercises.find((x) => x.id === exId);
+      const oldPartner = ex.pairWithId ? workout.exercises.find((x) => x.id === ex.pairWithId) : null;
+      if (oldPartner) oldPartner.pairWithId = null;
+      ex.pairWithId = newPartnerId;
+      if (newPartnerId) {
+        const newPartner = workout.exercises.find((x) => x.id === newPartnerId);
+        if (newPartner.pairWithId) {
+          const itsOldPartner = workout.exercises.find((x) => x.id === newPartner.pairWithId);
+          if (itsOldPartner) itsOldPartner.pairWithId = null;
+        }
+        newPartner.pairWithId = exId;
+      }
+      saveState();
       render();
     })
   );
@@ -208,7 +254,7 @@ function renderHoje(view) {
     });
 }
 
-/* ============ CRONÔMETRO / SESSÃO GUIADA ============ */
+/* ============ CRONÔMETRO / SESSÃO GUIADA (com suporte a bi-set) ============ */
 let liveSession = null;
 let liveTickInterval = null;
 
@@ -221,6 +267,40 @@ function parseDescansoSeconds(str) {
   return n;
 }
 
+function startLiveTicking() {
+  if (liveTickInterval) clearInterval(liveTickInterval);
+  liveTickInterval = setInterval(() => {
+    if (liveSession && currentTab === "hoje") liveTick();
+  }, 1000);
+}
+
+// Salva o progresso a cada mutação (item 8 da persistência) e re-renderiza.
+function liveRender() {
+  state.activeWorkoutState = liveSession;
+  saveState();
+  render();
+}
+
+function buildUnits(exercises) {
+  const units = [];
+  const consumed = new Set();
+  exercises.forEach((ex, i) => {
+    if (consumed.has(i)) return;
+    if (ex.pairWithId) {
+      const j = exercises.findIndex((e) => e.exId === ex.pairWithId);
+      if (j !== -1 && !consumed.has(j)) {
+        units.push({ type: "pair", idxs: [i, j] });
+        consumed.add(i);
+        consumed.add(j);
+        return;
+      }
+    }
+    units.push({ type: "single", idxs: [i] });
+    consumed.add(i);
+  });
+  return units;
+}
+
 function startLiveSession(workout) {
   const exercises = workout.exercises.map((ex) => {
     const last = lastLogFor(ex.nome);
@@ -228,6 +308,7 @@ function startLiveSession(workout) {
       exId: ex.id,
       nome: ex.nome,
       isCardio: !!ex.isCardio,
+      pairWithId: ex.pairWithId || null,
       plannedSeries: parseInt(ex.series, 10) || 1,
       plannedReps: ex.reps || "",
       plannedDescansoSec: ex.isCardio ? 0 : parseDescansoSeconds(ex.descanso),
@@ -238,26 +319,64 @@ function startLiveSession(workout) {
   liveSession = {
     workoutId: workout.id,
     workoutLetter: workout.letter,
-    exIndex: 0,
-    setIndex: 1,
+    units: buildUnits(exercises),
+    unitIndex: 0,
+    subIndex: 0, // 0 ou 1 — qual exercício da dupla está ativo agora (0 para exercício único)
+    roundIndex: 1, // número da série/rodada dentro da unidade atual
     phase: "idle", // idle | set-running | resting | finished
     setStartTime: null,
     restStartTime: null,
-    // tempo geral com play/pause independente
     generalRunning: false,
     generalElapsedSec: 0,
     generalTickStart: null,
     exercises,
   };
-  if (liveTickInterval) clearInterval(liveTickInterval);
-  liveTickInterval = setInterval(() => {
-    if (liveSession && currentTab === "hoje") liveTick();
-  }, 1000);
-  render();
+  startLiveTicking();
+  liveRender();
 }
 
+function currentUnit() {
+  return liveSession ? liveSession.units[liveSession.unitIndex] : null;
+}
+function unitPlannedRounds(unit) {
+  if (!unit) return 1;
+  if (unit.type === "single") return liveSession.exercises[unit.idxs[0]].plannedSeries;
+  return Math.min(liveSession.exercises[unit.idxs[0]].plannedSeries, liveSession.exercises[unit.idxs[1]].plannedSeries);
+}
+function unitDescansoSec(unit) {
+  if (!unit) return 60;
+  if (unit.type === "single") return liveSession.exercises[unit.idxs[0]].plannedDescansoSec;
+  return Math.max(liveSession.exercises[unit.idxs[0]].plannedDescansoSec, liveSession.exercises[unit.idxs[1]].plannedDescansoSec);
+}
 function currentLiveExercise() {
-  return liveSession ? liveSession.exercises[liveSession.exIndex] : null;
+  const unit = currentUnit();
+  if (!unit) return null;
+  const flatIdx = unit.idxs[liveSession.subIndex] ?? unit.idxs[0];
+  return liveSession.exercises[flatIdx];
+}
+// Mapeia um índice "achatado" (posição na lista visual de exercícios) para status atual.
+function liveStatusForFlatIndex(flatIdx) {
+  if (!liveSession) return null;
+  const unitIdx = liveSession.units.findIndex((u) => u.idxs.includes(flatIdx));
+  if (unitIdx === -1) return null;
+  if (unitIdx < liveSession.unitIndex) return "done";
+  if (unitIdx === liveSession.unitIndex && liveSession.phase !== "finished") return "current";
+  return null;
+}
+
+function liveSwitchToFlatIndex(flatIdx) {
+  const unitIdx = liveSession.units.findIndex((u) => u.idxs.includes(flatIdx));
+  if (unitIdx === -1) return;
+  const unit = liveSession.units[unitIdx];
+  liveSession.unitIndex = unitIdx;
+  liveSession.subIndex = unit.idxs[0] === flatIdx ? 0 : 1;
+  // Retoma na próxima rodada não concluída daquela unidade (preserva progresso já feito).
+  const doneCounts = unit.idxs.map((i) => liveSession.exercises[i].sets.length);
+  liveSession.roundIndex = Math.min(...doneCounts) + 1;
+  liveSession.phase = "idle";
+  liveSession.setStartTime = null;
+  liveSession.restStartTime = null;
+  liveRender();
 }
 
 function generalElapsedNow() {
@@ -274,7 +393,7 @@ function toggleGeneralTimer() {
     s.generalTickStart = Date.now();
     s.generalRunning = true;
   }
-  render();
+  liveRender();
 }
 
 function liveStartSet() {
@@ -284,10 +403,11 @@ function liveStartSet() {
   }
   liveSession.phase = "set-running";
   liveSession.setStartTime = Date.now();
-  render();
+  liveRender();
 }
 
 function liveFinishSet(status) {
+  const unit = currentUnit();
   const ex = currentLiveExercise();
   let actualReps = ex.plannedReps;
   if (status !== "completed") {
@@ -299,50 +419,68 @@ function liveFinishSet(status) {
   }
   const setElapsedSec = liveSession.setStartTime ? (Date.now() - liveSession.setStartTime) / 1000 : 0;
   ex.sets.push({
-    setNumber: liveSession.setIndex,
+    setNumber: liveSession.roundIndex,
     status,
     actualReps,
     setElapsedSec: Math.round(setElapsedSec),
-    restPlannedSec: ex.plannedDescansoSec,
+    restPlannedSec: null,
     restActualSec: null,
     overtimeSec: 0,
   });
   liveSession.setStartTime = null;
 
-  if (ex.plannedDescansoSec > 0) {
+  const isPair = unit.type === "pair";
+  const roundStillOpen = isPair && liveSession.subIndex === 0;
+
+  if (roundStillOpen) {
+    // Bi-set: acabou o 1º exercício da dupla — inicia o 2º imediatamente, sem descanso.
+    liveSession.subIndex = 1;
+    liveSession.phase = "set-running";
+    liveSession.setStartTime = Date.now();
+    liveRender();
+    return;
+  }
+
+  // Rodada da unidade completa (exercício único, ou os dois da dupla) — hora do descanso.
+  const restSec = unitDescansoSec(unit);
+  if (restSec > 0) {
     liveSession.phase = "resting";
     liveSession.restStartTime = Date.now();
   } else {
     liveAdvance();
   }
-  render();
+  liveRender();
 }
 
 function liveEndRest() {
+  const unit = currentUnit();
   const ex = currentLiveExercise();
   const lastSet = ex.sets[ex.sets.length - 1];
   const restElapsedSec = liveSession.restStartTime ? (Date.now() - liveSession.restStartTime) / 1000 : 0;
+  const plannedRest = unitDescansoSec(unit);
   if (lastSet) {
+    lastSet.restPlannedSec = plannedRest;
     lastSet.restActualSec = Math.round(restElapsedSec);
-    lastSet.overtimeSec = Math.max(0, Math.round(restElapsedSec - ex.plannedDescansoSec));
+    lastSet.overtimeSec = Math.max(0, Math.round(restElapsedSec - plannedRest));
   }
   liveSession.restStartTime = null;
   liveAdvance();
-  render();
+  liveRender();
 }
 
 function liveAdvance() {
-  const ex = currentLiveExercise();
-  liveSession.setIndex++;
-  if (liveSession.setIndex > ex.plannedSeries) {
-    liveSession.exIndex++;
-    liveSession.setIndex = 1;
-    if (liveSession.exIndex >= liveSession.exercises.length) {
+  const unit = currentUnit();
+  liveSession.subIndex = 0;
+  liveSession.roundIndex++;
+  if (liveSession.roundIndex > unitPlannedRounds(unit)) {
+    liveSession.unitIndex++;
+    liveSession.roundIndex = 1;
+    if (liveSession.unitIndex >= liveSession.units.length) {
       liveSession.phase = "finished";
       return;
     }
   }
-  // Inicia a próxima série (ou o próximo exercício) automaticamente, sem passar pela tela "Iniciar série".
+  // Inicia a próxima série (ou o próximo exercício/dupla) automaticamente.
   liveSession.phase = "set-running";
   liveSession.setStartTime = Date.now();
 }
@@ -352,6 +490,8 @@ function liveCancelSession() {
     if (liveTickInterval) clearInterval(liveTickInterval);
     liveTickInterval = null;
     liveSession = null;
+    state.activeWorkoutState = null;
+    saveState();
     render();
   }
 }
@@ -390,22 +530,28 @@ function liveFinalizeSession() {
       sets: ex.sets,
     })),
   });
-  saveState();
   if (liveTickInterval) clearInterval(liveTickInterval);
   liveTickInterval = null;
   liveSession = null;
+  state.activeWorkoutState = null;
+  saveState();
   toast("Treino finalizado e salvo ✓");
   render();
 }
 
 function renderTimerDashboardHtml() {
   const s = liveSession;
+  const unit = currentUnit();
   const ex = currentLiveExercise();
   const totalElapsed = Math.round(generalElapsedNow());
+  const plannedRounds = unitPlannedRounds(unit);
+  const restSec = unitDescansoSec(unit);
 
   const dots = ex
-    ? Array.from({ length: ex.plannedSeries }, (_, i) => (i < ex.sets.length ? "●" : i + 1 === s.setIndex ? "◐" : "○")).join(" ")
+    ? Array.from({ length: plannedRounds }, (_, i) => (i < ex.sets.length ? "●" : i + 1 === s.roundIndex ? "◐" : "○")).join(" ")
     : "";
+
+  const pairNote = unit && unit.type === "pair" ? `<div class="exercise-meta">Bi-set — ${s.subIndex === 0 ? "1º" : "2º"} exercício da dupla</div>` : "";
 
   let phaseBlock = "";
   if (s.phase === "finished" || !ex) {
@@ -416,7 +562,8 @@ function renderTimerDashboardHtml() {
       </div>`;
   } else if (s.phase === "idle") {
     phaseBlock = `
-      <div class="exercise-meta" style="margin-bottom:8px;">Série ${s.setIndex} de ${ex.plannedSeries} · meta: ${ex.plannedReps || "—"} reps${ex.plannedDescansoSec ? " · descanso " + formatSecondsToClock(ex.plannedDescansoSec) : ""}</div>
+      ${pairNote}
+      <div class="exercise-meta" style="margin-bottom:8px;">Série ${s.roundIndex} de ${plannedRounds} · meta: ${ex.plannedReps || "—"} reps${restSec ? " · descanso " + formatSecondsToClock(restSec) : ""}</div>
       <div style="font-size:18px; letter-spacing:3px; margin-bottom:10px;">${dots}</div>
       <label>Carga (kg)</label>
       <input type="text" id="live-carga" value="${ex.carga || ""}">
@@ -424,7 +571,8 @@ function renderTimerDashboardHtml() {
   } else if (s.phase === "set-running") {
     const setElapsed = Math.round((Date.now() - s.setStartTime) / 1000);
     phaseBlock = `
-      <div class="exercise-meta" style="margin-bottom:4px;">Série ${s.setIndex} de ${ex.plannedSeries} · meta: ${ex.plannedReps || "—"} reps · carga ${ex.carga || "—"}</div>
+      ${pairNote}
+      <div class="exercise-meta" style="margin-bottom:4px;">Série ${s.roundIndex} de ${plannedRounds} · meta: ${ex.plannedReps || "—"} reps · carga ${ex.carga || "—"}</div>
       <div class="live-timer-big" id="live-tick-display">${formatSecondsToClock(setElapsed)}</div>
       <div class="live-btn-row">
         <button class="btn" id="live-finish-ok">Terminei a série</button>
@@ -433,17 +581,18 @@ function renderTimerDashboardHtml() {
       </div>`;
   } else if (s.phase === "resting") {
     const restElapsed = (Date.now() - s.restStartTime) / 1000;
-    const remaining = ex.plannedDescansoSec - restElapsed;
+    const remaining = restSec - restElapsed;
     const isOvertime = remaining < 0;
     const timerHtml = isOvertime
       ? `00:00 <span class="overtime">+${formatSecondsToClock(-remaining)}</span>`
       : formatSecondsToClock(remaining);
-    const isLastSetOfExercise = s.setIndex + 1 > ex.plannedSeries;
-    const nextExName = isLastSetOfExercise ? (s.exercises[s.exIndex + 1] ? s.exercises[s.exIndex + 1].nome : null) : null;
+    const isLastRoundOfUnit = s.roundIndex + 1 > plannedRounds;
+    const nextUnit = isLastRoundOfUnit ? s.units[s.unitIndex + 1] : null;
+    const nextName = nextUnit ? nextUnit.idxs.map((i) => s.exercises[i].nome).join(" + ") : null;
     phaseBlock = `
-      <div class="exercise-meta" style="margin-bottom:4px;">Descanso · próxima: ${isLastSetOfExercise ? (nextExName ? "exercício " + nextExName : "fim do treino") : "série " + (s.setIndex + 1) + " de " + ex.plannedSeries}</div>
+      <div class="exercise-meta" style="margin-bottom:4px;">Descanso · próxima: ${isLastRoundOfUnit ? (nextName ? "exercício " + nextName : "fim do treino") : "série " + (s.roundIndex + 1) + " de " + plannedRounds}</div>
       <div class="live-timer-big ${isOvertime ? "overtime" : ""}" id="live-tick-display">${timerHtml}</div>
-      <button class="btn" id="live-end-rest">${isLastSetOfExercise && nextExName ? "Iniciar próximo exercício" : "Próxima série"}</button>`;
+      <button class="btn" id="live-end-rest">${isLastRoundOfUnit && nextName ? "Iniciar próximo exercício" : "Próxima série"}</button>`;
   }
 
   return `
@@ -473,6 +622,8 @@ function attachLiveDashboardEvents(view) {
   if (byId("live-carga"))
     byId("live-carga").addEventListener("change", (e) => {
       ex.carga = e.target.value;
+      state.activeWorkoutState = liveSession;
+      saveState();
     });
   if (byId("live-finish-ok")) byId("live-finish-ok").addEventListener("click", () => liveFinishSet("completed"));
   if (byId("live-finish-early")) byId("live-finish-early").addEventListener("click", () => liveFinishSet("failed_early"));
@@ -482,12 +633,12 @@ function attachLiveDashboardEvents(view) {
   if (byId("live-cancel")) byId("live-cancel").addEventListener("click", liveCancelSession);
 }
 
-// Atualiza só o texto dos timers a cada segundo, sem re-renderizar a tela
-// (evita piscar e perder foco de campos — ideia aproveitada da versão do Gemini).
+// Atualiza só o texto dos timers a cada segundo, sem re-renderizar a tela inteira.
 function liveTick() {
   if (!liveSession) return;
   const s = liveSession;
   const ex = currentLiveExercise();
+  const unit = currentUnit();
   const overallEl = document.getElementById("live-overall-timer");
   if (overallEl && s.generalRunning) overallEl.textContent = formatSecondsToClock(Math.round(generalElapsedNow()));
 
@@ -497,8 +648,9 @@ function liveTick() {
   if (s.phase === "set-running") {
     tickEl.textContent = formatSecondsToClock(Math.round((Date.now() - s.setStartTime) / 1000));
   } else if (s.phase === "resting") {
+    const restSec = unitDescansoSec(unit);
     const restElapsed = (Date.now() - s.restStartTime) / 1000;
-    const remaining = ex.plannedDescansoSec - restElapsed;
+    const remaining = restSec - restElapsed;
     const isOvertime = remaining < 0;
     tickEl.classList.toggle("overtime", isOvertime);
     tickEl.innerHTML = isOvertime
@@ -1464,6 +1616,11 @@ function addRunFab(view) {
 }
 
 /* ============ INIT ============ */
+// Restaura um treino com cronômetro que ficou em andamento (fechou o app, tela apagou, etc.)
+if (state.activeWorkoutState) {
+  liveSession = state.activeWorkoutState;
+  startLiveTicking();
+}
 render();
 
 if ("serviceWorker" in navigator) {
