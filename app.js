@@ -144,9 +144,10 @@ function renderHoje(view) {
         ? `Última vez (${formatShortDate(last.date)}): ${last.series ? last.series + "x" + last.reps : last.reps}${last.carga ? " · " + last.carga : ""}`
         : `Sugerido: ${metaSeries}${ex.carga ? " · " + ex.carga : ""}${ex.descanso ? " · descanso " + ex.descanso : ""}`;
       const isCurrent = liveSession && idx === liveSession.exIndex && liveSession.phase !== "finished";
+      const isDone = liveSession && idx < liveSession.exIndex;
       return `
       <div class="exercise-row ${isCurrent ? "current" : ""}" data-ex-id="${ex.id}">
-        <div class="exercise-name">${isCurrent ? "▶ " : ""}${ex.nome}${ex.isCardio ? " 🏃" : ""}</div>
+        <div class="exercise-name">${isDone ? "✅ " : isCurrent ? "▶ " : ""}${ex.nome}${ex.isCardio ? " 🏃" : ""}</div>
         <div class="exercise-meta">${metaLine}</div>
         <div class="log-grid">
           <div><label>Séries</label><input type="number" inputmode="numeric" class="in-series" value="${last ? last.series : ex.series}"></div>
@@ -341,7 +342,9 @@ function liveAdvance() {
       return;
     }
   }
-  liveSession.phase = "idle";
+  // Inicia a próxima série (ou o próximo exercício) automaticamente, sem passar pela tela "Iniciar série".
+  liveSession.phase = "set-running";
+  liveSession.setStartTime = Date.now();
 }
 
 function liveCancelSession() {
@@ -435,10 +438,12 @@ function renderTimerDashboardHtml() {
     const timerHtml = isOvertime
       ? `00:00 <span class="overtime">+${formatSecondsToClock(-remaining)}</span>`
       : formatSecondsToClock(remaining);
+    const isLastSetOfExercise = s.setIndex + 1 > ex.plannedSeries;
+    const nextExName = isLastSetOfExercise ? (s.exercises[s.exIndex + 1] ? s.exercises[s.exIndex + 1].nome : null) : null;
     phaseBlock = `
-      <div class="exercise-meta" style="margin-bottom:4px;">Descanso · próxima: série ${s.setIndex + 1 > ex.plannedSeries ? "1 (próximo exercício)" : s.setIndex + 1} de ${ex.plannedSeries}</div>
+      <div class="exercise-meta" style="margin-bottom:4px;">Descanso · próxima: ${isLastSetOfExercise ? (nextExName ? "exercício " + nextExName : "fim do treino") : "série " + (s.setIndex + 1) + " de " + ex.plannedSeries}</div>
       <div class="live-timer-big ${isOvertime ? "overtime" : ""}" id="live-tick-display">${timerHtml}</div>
-      <button class="btn" id="live-end-rest">Próxima série</button>`;
+      <button class="btn" id="live-end-rest">${isLastSetOfExercise && nextExName ? "Iniciar próximo exercício" : "Próxima série"}</button>`;
   }
 
   return `
