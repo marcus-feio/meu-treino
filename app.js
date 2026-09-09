@@ -923,8 +923,10 @@ function openReviewModal(parsedWorkouts) {
   document.body.appendChild(backdrop);
   backdrop.querySelector("#cancel-import").addEventListener("click", () => backdrop.remove());
   backdrop.querySelector("#confirm-import").addEventListener("click", () => {
+    const importDate = todayISO();
     // replace existing workouts with same letter, otherwise append
     parsedWorkouts.forEach((w) => {
+      w.createdAt = importDate; // marca quando essa ficha foi importada/atualizada (para o calendário)
       const idx = state.workouts.findIndex((existing) => existing.letter === w.letter);
       if (idx !== -1) state.workouts[idx] = w;
       else state.workouts.push(w);
@@ -969,20 +971,37 @@ function sessionsThisWeek() {
   return state.sessions.filter((s) => new Date(s.date + "T00:00:00") >= monday).length;
 }
 
+// Mês/ano sendo visualizado no calendário de Progresso (navegável com < >).
+let progressoNavYear = null;
+let progressoNavMonth = null;
+
 function renderProgresso(view) {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth();
+  const today = new Date();
+  if (progressoNavYear === null) {
+    progressoNavYear = today.getFullYear();
+    progressoNavMonth = today.getMonth();
+  }
+  const year = progressoNavYear;
+  const month = progressoNavMonth;
+
   const firstDay = new Date(year, month, 1);
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const startOffset = firstDay.getDay();
   const trainedDates = new Set(state.sessions.map((s) => s.date));
+  const importDates = new Set(state.workouts.map((w) => w.createdAt).filter(Boolean));
+
+  const weekdayHeader = WEEKDAYS.map((d) => `<div class="cal-weekday">${d}</div>`).join("");
 
   let calCells = "";
   for (let i = 0; i < startOffset; i++) calCells += `<div class="cal-day empty"></div>`;
   for (let d = 1; d <= daysInMonth; d++) {
     const iso = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-    calCells += `<div class="cal-day ${trainedDates.has(iso) ? "trained" : ""}">${d}</div>`;
+    const isTrained = trainedDates.has(iso);
+    const isNewWorkout = importDates.has(iso);
+    const classes = ["cal-day"];
+    if (isTrained) classes.push("trained");
+    if (isNewWorkout) classes.push("new-workout");
+    calCells += `<div class="${classes.join(" ")}" title="${isNewWorkout ? "Novo treino importado" : ""}">${d}${isNewWorkout ? '<span class="cal-star">★</span>' : ""}</div>`;
   }
 
   // per-exercise history
@@ -1027,11 +1046,37 @@ function renderProgresso(view) {
       <div class="stat-box"><div class="stat-num">${sessionsThisWeek()}</div><div class="stat-label">treinos essa semana</div></div>
       <div class="stat-box"><div class="stat-num">${state.sessions.length}</div><div class="stat-label">total registrado</div></div>
     </div>
-    <div class="section-sub" style="margin-bottom:8px; text-transform:capitalize;">${MONTHS[month]} ${year}</div>
+    <div class="cal-nav">
+      <button class="cal-nav-btn" id="cal-prev-month" aria-label="Mês anterior">‹</button>
+      <div class="section-sub" style="margin-bottom:0; text-transform:capitalize;">${MONTHS[month]} ${year}</div>
+      <button class="cal-nav-btn" id="cal-next-month" aria-label="Próximo mês">›</button>
+    </div>
+    <div class="calendar-header">${weekdayHeader}</div>
     <div class="calendar">${calCells}</div>
+    <div class="cal-legend">
+      <span><span class="legend-dot trained"></span> treinou</span>
+      <span><span class="legend-dot new-workout"></span> ★ novo treino importado</span>
+    </div>
     <div class="section-title" style="font-size:18px;">Evolução de carga</div>
     ${progressHtml}
   `;
+
+  document.getElementById("cal-prev-month").addEventListener("click", () => {
+    progressoNavMonth--;
+    if (progressoNavMonth < 0) {
+      progressoNavMonth = 11;
+      progressoNavYear--;
+    }
+    render();
+  });
+  document.getElementById("cal-next-month").addEventListener("click", () => {
+    progressoNavMonth++;
+    if (progressoNavMonth > 11) {
+      progressoNavMonth = 0;
+      progressoNavYear++;
+    }
+    render();
+  });
 }
 
 /* ============ AVALIAÇÃO FÍSICA ============ */
