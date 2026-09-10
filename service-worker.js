@@ -1,4 +1,4 @@
-const CACHE_NAME = "treino-cache-v15";
+const CACHE_NAME = "treino-cache-v16";
 
 // Arquivos que mudam com frequência (código do app): rede primeiro, cache como reserva offline.
 const FRESH_ASSETS = ["./", "./index.html", "./style.css", "./app.js", "./manifest.json"];

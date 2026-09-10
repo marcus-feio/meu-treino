@@ -162,11 +162,15 @@ function renderHoje(view) {
       <div class="exercise-row ${status === "current" ? "current" : ""} ${liveSession ? "clickable" : ""}" data-ex-id="${ex.id}" data-idx="${idx}">
         <div class="exercise-name">${status === "done" ? "✅ " : status === "current" ? "▶ " : ""}${ex.nome}${ex.isCardio ? " 🏃" : ""}${partner && !liveSession ? ` <span class="pair-badge">🔗 ${partner.nome}</span>` : ""}</div>
         <div class="exercise-meta">${metaLine}</div>
-        <div class="log-grid">
+        ${
+          liveSession
+            ? `<div class="exercise-meta" style="color:var(--chalk-dim); font-style:italic;">Ajuste a carga no painel do cronômetro acima ↑</div>`
+            : `<div class="log-grid">
           <div><label>Séries</label><input type="number" inputmode="numeric" class="in-series" value="${last ? last.series : ex.series}"></div>
           <div><label>Reps</label><input type="text" inputmode="numeric" class="in-reps" value="${last ? last.reps : ex.reps}"></div>
           <div><label>Carga</label><input type="text" class="in-carga" value="${last ? last.carga : (ex.carga || "")}"></div>
-        </div>
+        </div>`
+        }
         ${pairSelectHtml}
       </div>`;
     })
@@ -354,12 +358,20 @@ function currentLiveExercise() {
   const flatIdx = unit.idxs[liveSession.subIndex] ?? unit.idxs[0];
   return liveSession.exercises[flatIdx];
 }
+// Um exercício/dupla está "concluído" quando de fato bateu o número de séries planejado —
+// nunca por causa de navegação (pular pra outro exercício não pode marcar nada como feito).
+function isUnitCompleted(unit) {
+  if (!unit) return false;
+  const rounds = unitPlannedRounds(unit);
+  return unit.idxs.every((i) => liveSession.exercises[i].sets.length >= rounds);
+}
 // Mapeia um índice "achatado" (posição na lista visual de exercícios) para status atual.
 function liveStatusForFlatIndex(flatIdx) {
   if (!liveSession) return null;
   const unitIdx = liveSession.units.findIndex((u) => u.idxs.includes(flatIdx));
   if (unitIdx === -1) return null;
-  if (unitIdx < liveSession.unitIndex) return "done";
+  const unit = liveSession.units[unitIdx];
+  if (isUnitCompleted(unit)) return "done";
   if (unitIdx === liveSession.unitIndex && liveSession.phase !== "finished") return "current";
   return null;
 }
@@ -571,6 +583,7 @@ function renderTimerDashboardHtml() {
   } else if (s.phase === "set-running") {
     const setElapsed = Math.round((Date.now() - s.setStartTime) / 1000);
     phaseBlock = `
+      <div class="status-overlay work">Treine!</div>
       ${pairNote}
       <div class="exercise-meta" style="margin-bottom:4px;">Série ${s.roundIndex} de ${plannedRounds} · meta: ${ex.plannedReps || "—"} reps · carga ${ex.carga || "—"}</div>
       <div class="live-timer-big" id="live-tick-display">${formatSecondsToClock(setElapsed)}</div>
@@ -590,6 +603,7 @@ function renderTimerDashboardHtml() {
     const nextUnit = isLastRoundOfUnit ? s.units[s.unitIndex + 1] : null;
     const nextName = nextUnit ? nextUnit.idxs.map((i) => s.exercises[i].nome).join(" + ") : null;
     phaseBlock = `
+      <div class="status-overlay rest">Descanse!</div>
       <div class="exercise-meta" style="margin-bottom:4px;">Descanso · próxima: ${isLastRoundOfUnit ? (nextName ? "exercício " + nextName : "fim do treino") : "série " + (s.roundIndex + 1) + " de " + plannedRounds}</div>
       <div class="live-timer-big ${isOvertime ? "overtime" : ""}" id="live-tick-display">${timerHtml}</div>
       <button class="btn" id="live-end-rest">${isLastRoundOfUnit && nextName ? "Iniciar próximo exercício" : "Próxima série"}</button>`;
@@ -620,7 +634,7 @@ function attachLiveDashboardEvents(view) {
   if (byId("toggle-general-btn")) byId("toggle-general-btn").addEventListener("click", toggleGeneralTimer);
   if (byId("live-start-set")) byId("live-start-set").addEventListener("click", liveStartSet);
   if (byId("live-carga"))
-    byId("live-carga").addEventListener("change", (e) => {
+    byId("live-carga").addEventListener("input", (e) => {
       ex.carga = e.target.value;
       state.activeWorkoutState = liveSession;
       saveState();
@@ -975,6 +989,9 @@ function sessionsThisWeek() {
 let progressoNavYear = null;
 let progressoNavMonth = null;
 
+// Dia selecionado no calendário (para ver o detalhe abaixo) — filtro estrito por data.
+let progressoSelectedDate = null;
+
 function renderProgresso(view) {
   const today = new Date();
   if (progressoNavYear === null) {
@@ -1001,7 +1018,32 @@ function renderProgresso(view) {
     const classes = ["cal-day"];
     if (isTrained) classes.push("trained");
     if (isNewWorkout) classes.push("new-workout");
-    calCells += `<div class="${classes.join(" ")}" title="${isNewWorkout ? "Novo treino importado" : ""}">${d}${isNewWorkout ? '<span class="cal-star">★</span>' : ""}</div>`;
+    if (iso === progressoSelectedDate) classes.push("selected");
+    calCells += `<div class="${classes.join(" ")}" data-iso="${iso}" title="${isNewWorkout ? "Novo treino importado" : ""}">${d}${isNewWorkout ? '<span class="cal-star">★</span>' : ""}</div>`;
+  }
+
+  // detalhe do dia selecionado — filtro ESTRITO por igualdade de data, nunca mostra outros dias
+  let dayDetailHtml = "";
+  if (progressoSelectedDate) {
+    const sessionsOfDay = state.sessions.filter((s) => s.date === progressoSelectedDate);
+    const shortDate = progressoSelectedDate.split("-").reverse().join("/");
+    if (sessionsOfDay.length === 0) {
+      dayDetailHtml = `<div class="card"><div class="label" style="margin-bottom:6px;">${shortDate}</div><div class="section-sub" style="margin-bottom:0;">Nenhum treino registrado nesse dia.</div></div>`;
+    } else {
+      dayDetailHtml = `<div class="card">
+        <div class="label" style="margin-bottom:6px;">${shortDate} — Treino ${sessionsOfDay.map((s) => s.workoutLetter).join(", ")}</div>
+        ${sessionsOfDay
+          .map((s) =>
+            s.log
+              .map(
+                (l) =>
+                  `<div class="ex-list-item"><span>${l.nome}</span><span class="n">${l.series}x${l.reps}${l.carga ? " · " + l.carga : ""}</span></div>`
+              )
+              .join("")
+          )
+          .join("")}
+      </div>`;
+    }
   }
 
   // per-exercise history
@@ -1057,6 +1099,7 @@ function renderProgresso(view) {
       <span><span class="legend-dot trained"></span> treinou</span>
       <span><span class="legend-dot new-workout"></span> ★ novo treino importado</span>
     </div>
+    ${dayDetailHtml}
     <div class="section-title" style="font-size:18px;">Evolução de carga</div>
     ${progressHtml}
   `;
@@ -1077,6 +1120,13 @@ function renderProgresso(view) {
     }
     render();
   });
+  view.querySelectorAll(".cal-day[data-iso]").forEach((cell) =>
+    cell.addEventListener("click", () => {
+      const iso = cell.dataset.iso;
+      progressoSelectedDate = progressoSelectedDate === iso ? null : iso; // clicar de novo fecha o detalhe
+      render();
+    })
+  );
 }
 
 /* ============ AVALIAÇÃO FÍSICA ============ */
