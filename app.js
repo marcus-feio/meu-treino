@@ -434,6 +434,7 @@ function liveFinishSet(status) {
     setNumber: liveSession.roundIndex,
     status,
     actualReps,
+    carga: ex.carga || "", // carga usada NESSA série específica (piramidal) — não sobrescreve séries anteriores
     setElapsedSec: Math.round(setElapsedSec),
     restPlannedSec: null,
     restActualSec: null,
@@ -585,8 +586,10 @@ function renderTimerDashboardHtml() {
     phaseBlock = `
       <div class="status-overlay work">Treine!</div>
       ${pairNote}
-      <div class="exercise-meta" style="margin-bottom:4px;">Série ${s.roundIndex} de ${plannedRounds} · meta: ${ex.plannedReps || "—"} reps · carga ${ex.carga || "—"}</div>
+      <div class="exercise-meta" style="margin-bottom:8px;">Série ${s.roundIndex} de ${plannedRounds} · meta: ${ex.plannedReps || "—"} reps</div>
       <div class="live-timer-big" id="live-tick-display">${formatSecondsToClock(setElapsed)}</div>
+      <label>Carga (kg) — pode ajustar durante a série (útil em piramidal)</label>
+      <input type="text" id="live-carga" value="${ex.carga || ""}">
       <div class="live-btn-row">
         <button class="btn" id="live-finish-ok">Terminei a série</button>
         <button class="btn secondary" id="live-finish-early">Não terminei</button>
@@ -989,9 +992,6 @@ function sessionsThisWeek() {
 let progressoNavYear = null;
 let progressoNavMonth = null;
 
-// Dia selecionado no calendário (para ver o detalhe abaixo) — filtro estrito por data.
-let progressoSelectedDate = null;
-
 function renderProgresso(view) {
   const today = new Date();
   if (progressoNavYear === null) {
@@ -1005,6 +1005,7 @@ function renderProgresso(view) {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const startOffset = firstDay.getDay();
   const trainedDates = new Set(state.sessions.map((s) => s.date));
+  const cardioDates = new Set(state.runs.map((r) => r.date));
   const importDates = new Set(state.workouts.map((w) => w.createdAt).filter(Boolean));
 
   const weekdayHeader = WEEKDAYS.map((d) => `<div class="cal-weekday">${d}</div>`).join("");
@@ -1014,36 +1015,15 @@ function renderProgresso(view) {
   for (let d = 1; d <= daysInMonth; d++) {
     const iso = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
     const isTrained = trainedDates.has(iso);
+    const isCardio = cardioDates.has(iso);
     const isNewWorkout = importDates.has(iso);
+    const hasAnyRecord = isTrained || isCardio;
     const classes = ["cal-day"];
     if (isTrained) classes.push("trained");
+    if (isCardio) classes.push("trained-cardio");
     if (isNewWorkout) classes.push("new-workout");
-    if (iso === progressoSelectedDate) classes.push("selected");
+    if (hasAnyRecord) classes.push("clickable");
     calCells += `<div class="${classes.join(" ")}" data-iso="${iso}" title="${isNewWorkout ? "Novo treino importado" : ""}">${d}${isNewWorkout ? '<span class="cal-star">★</span>' : ""}</div>`;
-  }
-
-  // detalhe do dia selecionado — filtro ESTRITO por igualdade de data, nunca mostra outros dias
-  let dayDetailHtml = "";
-  if (progressoSelectedDate) {
-    const sessionsOfDay = state.sessions.filter((s) => s.date === progressoSelectedDate);
-    const shortDate = progressoSelectedDate.split("-").reverse().join("/");
-    if (sessionsOfDay.length === 0) {
-      dayDetailHtml = `<div class="card"><div class="label" style="margin-bottom:6px;">${shortDate}</div><div class="section-sub" style="margin-bottom:0;">Nenhum treino registrado nesse dia.</div></div>`;
-    } else {
-      dayDetailHtml = `<div class="card">
-        <div class="label" style="margin-bottom:6px;">${shortDate} — Treino ${sessionsOfDay.map((s) => s.workoutLetter).join(", ")}</div>
-        ${sessionsOfDay
-          .map((s) =>
-            s.log
-              .map(
-                (l) =>
-                  `<div class="ex-list-item"><span>${l.nome}</span><span class="n">${l.series}x${l.reps}${l.carga ? " · " + l.carga : ""}</span></div>`
-              )
-              .join("")
-          )
-          .join("")}
-      </div>`;
-    }
   }
 
   // per-exercise history
@@ -1096,10 +1076,10 @@ function renderProgresso(view) {
     <div class="calendar-header">${weekdayHeader}</div>
     <div class="calendar">${calCells}</div>
     <div class="cal-legend">
-      <span><span class="legend-dot trained"></span> treinou</span>
+      <span><span class="legend-dot trained"></span> musculação</span>
+      <span><span class="legend-dot cardio"></span> corrida/cárdio</span>
       <span><span class="legend-dot new-workout"></span> ★ novo treino importado</span>
     </div>
-    ${dayDetailHtml}
     <div class="section-title" style="font-size:18px;">Evolução de carga</div>
     ${progressHtml}
   `;
@@ -1120,13 +1100,66 @@ function renderProgresso(view) {
     }
     render();
   });
-  view.querySelectorAll(".cal-day[data-iso]").forEach((cell) =>
-    cell.addEventListener("click", () => {
-      const iso = cell.dataset.iso;
-      progressoSelectedDate = progressoSelectedDate === iso ? null : iso; // clicar de novo fecha o detalhe
-      render();
-    })
+  view.querySelectorAll(".cal-day.clickable[data-iso]").forEach((cell) =>
+    cell.addEventListener("click", () => openDayDetailModal(cell.dataset.iso))
   );
+}
+
+// Modal com o detalhe completo do dia — musculação (séries/reps/carga) e cárdio (distância/tempo/pace/tiros).
+// Filtro ESTRITO por igualdade de data (nunca mistura dados de outros dias).
+function openDayDetailModal(iso) {
+  const sessionsOfDay = state.sessions.filter((s) => s.date === iso);
+  const runsOfDay = state.runs.filter((r) => r.date === iso);
+  const shortDate = iso.split("-").reverse().join("/");
+
+  const strengthHtml = sessionsOfDay.length
+    ? sessionsOfDay
+        .map(
+          (s) => `
+        <div class="label" style="margin:10px 0 4px;">🏋️ Musculação — Treino ${s.workoutLetter}</div>
+        ${s.log
+          .map(
+            (l) =>
+              `<div class="ex-list-item"><span>${l.nome}</span><span class="n">${l.series}x${l.reps}${l.carga ? " · " + l.carga : ""}</span></div>`
+          )
+          .join("")}`
+        )
+        .join("")
+    : "";
+
+  const cardioHtml = runsOfDay.length
+    ? runsOfDay
+        .map((r) => {
+          const tirosHtml =
+            r.tipo === "Treino de Tiros" && (r.tirosQtd || r.tirosVel)
+              ? `<div class="ex-list-item"><span>Tiros</span><span class="n">${r.tirosQtd || "—"}x · ${r.tirosVel ? r.tirosVel + " km/h" : "—"}</span></div>`
+              : "";
+          return `
+        <div class="label" style="margin:10px 0 4px;">🏃 Cárdio${r.tipo ? " — " + r.tipo : ""}</div>
+        <div class="ex-list-item"><span>Distância</span><span class="n">${r.km ?? "—"} km</span></div>
+        <div class="ex-list-item"><span>Tempo total</span><span class="n">${formatSecondsToClock(r.totalTimeSec)}</span></div>
+        <div class="ex-list-item"><span>Pace</span><span class="n">${formatPace(r.paceSecPerKm)}</span></div>
+        ${r.isMixed ? `<div class="ex-list-item"><span>Andou / Correu</span><span class="n">${formatSecondsToClock(r.walkTimeSec)} / ${formatSecondsToClock(r.runTimeSec)}</span></div>` : ""}
+        ${r.calorias ? `<div class="ex-list-item"><span>Calorias</span><span class="n">${r.calorias} kcal</span></div>` : ""}
+        ${tirosHtml}`;
+        })
+        .join("")
+    : "";
+
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="modal">
+      <h3>${shortDate}</h3>
+      ${strengthHtml || cardioHtml ? strengthHtml + cardioHtml : `<p class="section-sub">Nenhum registro nesse dia.</p>`}
+      <div style="height:8px"></div>
+      <button class="btn secondary" id="close-day-detail">Fechar</button>
+    </div>`;
+  document.body.appendChild(backdrop);
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) backdrop.remove();
+  });
+  backdrop.querySelector("#close-day-detail").addEventListener("click", () => backdrop.remove());
 }
 
 /* ============ AVALIAÇÃO FÍSICA ============ */
@@ -1523,6 +1556,21 @@ function openRunLogModal() {
       <h3>Registrar corrida</h3>
       <label>Data</label>
       <input type="date" id="r-data" value="${todayISO()}">
+      <label>Categoria do treino</label>
+      <select id="r-tipo">
+        <option value="Regenerativo">Regenerativo</option>
+        <option value="Rodagem">Rodagem</option>
+        <option value="Longão">Longão</option>
+        <option value="Treino de Tiros">Treino de Tiros</option>
+        <option value="Fartlek">Fartlek</option>
+        <option value="Tempo Run">Tempo Run</option>
+      </select>
+      <div id="r-tiros-fields" style="display:none;">
+        <label>Número de tiros/séries</label>
+        <input type="text" id="r-tiros-qtd" placeholder="ex: 8">
+        <label>Velocidade média dos tiros (km/h)</label>
+        <input type="text" id="r-tiros-vel" placeholder="ex: 14.5">
+      </div>
       <label>Distância (km)</label>
       <input type="text" id="r-km" placeholder="ex: 5.2">
       <label>Tempo total (mm:ss ou h:mm:ss)</label>
@@ -1549,6 +1597,9 @@ function openRunLogModal() {
   backdrop.querySelector("#r-misto").addEventListener("change", (e) => {
     backdrop.querySelector("#r-misto-fields").style.display = e.target.checked ? "block" : "none";
   });
+  backdrop.querySelector("#r-tipo").addEventListener("change", (e) => {
+    backdrop.querySelector("#r-tiros-fields").style.display = e.target.value === "Treino de Tiros" ? "block" : "none";
+  });
   backdrop.querySelector("#r-estimar").addEventListener("click", () => {
     const km = parseFloat(backdrop.querySelector("#r-km").value.replace(",", "."));
     const est = estimateCalories(km);
@@ -1570,15 +1621,22 @@ function openRunLogModal() {
     const walkTimeSec = isMixed ? parseTimeToSeconds(backdrop.querySelector("#r-tempo-andei").value) : null;
     const runTimeSec = isMixed ? parseTimeToSeconds(backdrop.querySelector("#r-tempo-correu").value) : null;
     const calorias = parseFloat(backdrop.querySelector("#r-calorias").value) || null;
+    const tipo = backdrop.querySelector("#r-tipo").value;
+    const isTiros = tipo === "Treino de Tiros";
+    const tirosQtd = isTiros ? parseFloat(backdrop.querySelector("#r-tiros-qtd").value) || null : null;
+    const tirosVel = isTiros ? parseFloat(backdrop.querySelector("#r-tiros-vel").value.replace(",", ".")) || null : null;
     const record = {
       id: uid(),
       date: backdrop.querySelector("#r-data").value || todayISO(),
+      tipo,
       km,
       totalTimeSec,
       isMixed,
       walkTimeSec,
       runTimeSec,
       calorias,
+      tirosQtd,
+      tirosVel,
       paceSecPerKm: totalTimeSec / km,
     };
     state.runs.push(record);
@@ -1661,8 +1719,8 @@ function renderCorrida(view) {
     .map(
       (r) => `<div class="run-list-item">
         <div class="info">
-          <div class="d1">${r.date.split("-").reverse().join("/")} — ${r.km} km</div>
-          <div class="d2">${formatSecondsToClock(r.totalTimeSec)} · ${formatPace(r.paceSecPerKm)}${r.isMixed ? ` · andou ${formatSecondsToClock(r.walkTimeSec)} / correu ${formatSecondsToClock(r.runTimeSec)}` : ""}${r.calorias ? ` · ${r.calorias} kcal` : ""}</div>
+          <div class="d1">${r.date.split("-").reverse().join("/")} — ${r.km} km${r.tipo ? ` <span class="pair-badge">${r.tipo}</span>` : ""}</div>
+          <div class="d2">${formatSecondsToClock(r.totalTimeSec)} · ${formatPace(r.paceSecPerKm)}${r.isMixed ? ` · andou ${formatSecondsToClock(r.walkTimeSec)} / correu ${formatSecondsToClock(r.runTimeSec)}` : ""}${r.calorias ? ` · ${r.calorias} kcal` : ""}${r.tipo === "Treino de Tiros" && (r.tirosQtd || r.tirosVel) ? ` · ${r.tirosQtd || "—"} tiros @ ${r.tirosVel || "—"} km/h` : ""}</div>
         </div>
         <button class="del" data-del-run="${r.id}">excluir</button>
       </div>`

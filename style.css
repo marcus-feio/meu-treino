@@ -13,6 +13,7 @@
   --rust:#B5483B;
   --rust-dim:#3A1F1B;
   --ecg:#E5433A;
+  --sky:#3E8FC4;
 }
 
 *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
@@ -362,9 +363,20 @@ label{
   color:var(--chalk);
   font-weight:700;
 }
+/* Dia só de cárdio/corrida (sem musculação): fundo azul */
+.cal-day.trained-cardio:not(.trained){
+  background:var(--sky);
+  color:var(--chalk);
+  font-weight:700;
+}
+/* Dia com musculação E cárdio: mantém o fundo verde e soma um anel azul */
+.cal-day.trained-cardio.trained{
+  box-shadow: inset 0 0 0 2px var(--sky);
+}
 .cal-day.new-workout{
   border-color:var(--amber);
 }
+.cal-day.clickable{cursor:pointer;}
 .cal-day.selected{
   border-color:var(--chalk);
 }
@@ -400,6 +412,7 @@ label{
   border:2px solid transparent;
 }
 .legend-dot.trained{background:var(--moss); border-color:var(--moss);}
+.legend-dot.cardio{background:var(--sky); border-color:var(--sky);}
 .legend-dot.new-workout{border-color:var(--amber);}
 
 .progress-exercise{margin-bottom:16px;}
